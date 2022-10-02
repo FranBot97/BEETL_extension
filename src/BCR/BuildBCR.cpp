@@ -367,16 +367,17 @@ int BCRexternalBWT::buildBCR( const string &file1, const string &fileOut, const 
         else
             f = fopen( file1.c_str(), "rb" );
         SeqReaderFile *pReader( SeqReaderFile::getReader( f ) );
-        transp.init( pReader, file1, readQualities);
-        //Test 1
-        //transp.convertAcceptDiffLen(file1, cycFilesPrefix);
-        //Test 2
-        //transp.convertLenOrder( file1, cycFilesPrefix );
-        //Test 3
-        transp.convertRLO(file1, cycFilesPrefix);
-        //printf("\n-------------------- DONE --------------------------\n");
+       transp.init( pReader, file1, readQualities);
+        //TODO set true to delete file, false instead
         //Standard
-        //transp.convert(cycFilesPrefix);
+        //transp.convert(cycFilesPrefix, false);
+        //Test 1
+        transp.convertDiffLen(file1, cycFilesPrefix, 0, false);
+        //Test 2
+        //transp.convertLenOrder( file1, cycFilesPrefix , false);
+        //Test 3
+        //transp.computeRLO(file1, cycFilesPrefix, false);
+        printf("\n-------------------- DONE --------------------------\n");
         delete pReader;
         if ( f != stdin )
             fclose( f );

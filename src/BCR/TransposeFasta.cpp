@@ -24,7 +24,7 @@
 #include <cstdlib>
 #include <algorithm>
 
-
+//TODO spostare tutto in TransposeFasta.hh oppure parameters
 using namespace std;
 KSEQ_INIT(gzFile, gzread);
 
@@ -113,7 +113,14 @@ int TransposeFasta::findInfoSeq(const string &input, const string &output, vecto
     seq = kseq_init(fp);
     int charsBuffered = 0;
     int seqRead = 0;
+    long previousLen = -1;
     while ((l = kseq_read(seq)) >= 0) {
+        //detective different len between sequences
+        if(previousLen >= 0){
+            if(l != previousLen)
+                differentLenDetected_ = true;
+        }
+        previousLen = l;
         nSeq++;
         for (long int z = 0; z < l; z++)
             freq[(unsigned int) (seq->seq.s[z])] = 1;
@@ -185,16 +192,18 @@ int TransposeFasta::findInfoSeq(const string &input, const string &output, vecto
 
 void TransposeFasta::init( SeqReaderFile *pReader, const string &input, const bool processQualities)
 {
-
+    differentLenDetected_ = false;
     //printf("\nFile name %s", input.c_str());
     pReader_ = pReader;
-#if (DIFFERENT_LEN == 1)
-    cycleNum_ = findInfoSeq(input,output_array_file,keepOrder);
+#if (ACCEPT_DIFFERENT_LEN == 1)
+    cycleNum_ = findInfoSeq(input,output_array_file,keepOrder); //TODO remove keepOrder and use file instead
     outputFiles_.resize( cycleNum_ );
     buf_.resize( cycleNum_, vector<uchar>( BUFFERSIZE ) );
-    for(int i = 0; i < cycleNum_; i++)
-        for(int j = 0; j < BUFFERSIZE; j++)
-            buf_[i][j] = DUMMY_CHAR;
+    if(differentLenDetected_) {
+        for (int i = 0; i < cycleNum_; i++)
+            for (int j = 0; j < BUFFERSIZE; j++)
+                buf_[i][j] = DUMMY_CHAR;
+    }
     processQualities_ = processQualities;
 #else
     cycleNum_ = pReader->length();
@@ -387,8 +396,8 @@ bool TransposeFasta::convert( /*const string &input,*/ const string &output, boo
     return true;
 }
 
-/* Create cyc files inserting DUMMY_CHAR to fill length difference between strings */
-bool TransposeFasta::convertAcceptDiffLen( const string &input, const string &output, bool generatedFilesAreTemporary )
+/* Creates cyc files inserting DUMMY_CHAR to fill length difference between strings */
+bool TransposeFasta::convertDiffLen( const string &input, const string &output, bool align, bool generatedFilesAreTemporary )
 {
     vector<vector<uchar> > bufQual;
     vector<FILE *> outputFilesQual;
@@ -452,7 +461,7 @@ bool TransposeFasta::convertAcceptDiffLen( const string &input, const string &ou
 
     /* doesn't need but for clarity */
 
-#if (DIFFERENT_LEN == 1)
+#if (ACCEPT_DIFFERENT_LEN == 1)
     for(int i = 0; i < cycleNum_; i++) {
         for (int j = 0; j < BUFFERSIZE; j++)
             buf_[i][j] = DUMMY_CHAR;
@@ -498,7 +507,7 @@ bool TransposeFasta::convertAcceptDiffLen( const string &input, const string &ou
             }
             //lengthTexts += ( num_write * cycleNum_ );
             //reset buffer with #
-#if (DIFFERENT_LEN == 1)
+#if (ACCEPT_DIFFERENT_LEN == 1)
             for(int i = 0; i < cycleNum_; i++) {
                 for (int j = 0; j < BUFFERSIZE; j++)
                     buf_[i][j] = DUMMY_CHAR;
@@ -508,43 +517,35 @@ bool TransposeFasta::convertAcceptDiffLen( const string &input, const string &ou
 
             charsBuffered = 0;
         }
-        int index = len-1;
-        for ( SequenceLength i = 0; i < len; i++ )
-        {
-            buf_[i][charsBuffered] = seq->seq.s[index];
 
-            if ( processQualities_ )
-            {
-                bufQual[i][charsBuffered] = seq->qual.s[index];
+        if(align == 0){
+            //Allineamento a sinistra
+                 for ( SequenceLength i = 0; i < len; ++i ) {
+                     buf_[i][charsBuffered] = seq->seq.s[i];
+
+                     if (processQualities_) {
+                         bufQual[i][charsBuffered] = seq->qual.s[i];
+                     }
+                 }
+        }else{
+            //Allineamento a destra per preprocessing RLO
+            int index = cycleNum_-1;
+            for ( int i = len-1; i >= 0; --i )
+            {   printf("posizione i: %d e carattere %c\n", i, seq->seq.s[i]);
+                buf_[index][charsBuffered] = seq->seq.s[i];
+
+                if ( processQualities_ )
+                {
+                    bufQual[index][charsBuffered] = seq->qual.s[i];
+                }
+                index--;
             }
-            index--;
         }
+
         // increase the counter of chars buffered
         charsBuffered++;
         nSeq++;
 
-
-/*#ifdef XXX
-        // process the input
-        if ( buf[0] != '>' )
-        {
-            // add the characters
-            for ( SequenceLength i = 0; i < len; i++ )
-            {
-                buf_[i][charsBuffered] = buf[i];
-            }
-
-            // increase the counter of chars buffered
-            charsBuffered++;
-            nSeq++;
-        }
-#endif
- */
-
-
-        //num_read = fread(buf,sizeof(uchar),cycleNum_,ifile);
-        //        fgets ( buf, 1024, ifile );
-        // pReader_->readNext();
     }
 
     // write the rest
@@ -561,7 +562,6 @@ bool TransposeFasta::convertAcceptDiffLen( const string &input, const string &ou
     checkIfEqual( num_write, charsBuffered );
 
 
-
     // closing all the output file streams
     for ( SequenceLength i = 0; i < cycleNum_; i++ )
     {
@@ -575,11 +575,10 @@ bool TransposeFasta::convertAcceptDiffLen( const string &input, const string &ou
     std::cout << "Number of sequences reading/writing: " << nSeq << "\n";
     std::cout << "Number of characters reading/writing: " << lengthTexts << "\n";
 
-    //    delete pReader;
     return true;
 }
 
-/* Create cyc files ordering strings by len and filling difference in size with DUMMY_CHAR, prints permutation of strings in file */
+/* Creates cyc files ordering strings by len and filling difference in size with DUMMY_CHAR, prints permutation of strings in file */
 bool TransposeFasta::convertLenOrder(const string &input, const string &output, bool generatedFilesAreTemporary ){
 
     vector<vector<uchar> > bufQual;
@@ -728,22 +727,6 @@ bool TransposeFasta::convertLenOrder(const string &input, const string &output, 
                 lengthTexts+=len;
             }
             nSeq++;
-
-/*#ifdef XXX
-        // process the input
-        if ( buf[0] != '>' )
-        {
-            // add the characters
-            for ( SequenceLength i = 0; i < cycleNum_; i++ )
-            {
-                buf_[i][charsBuffered] = buf[i];
-            }
-
-            // increase the counter of chars buffered
-            charsBuffered++;
-            nSeq++;
-        }
-#endif                      //else */
         }
         counterTimes++;
     }
@@ -775,14 +758,18 @@ bool TransposeFasta::convertLenOrder(const string &input, const string &output, 
     return true;
 }
 
-/* Order sequences by reverse lexicographic order and writes permutation of strings in file */
-bool TransposeFasta::convertRLO(const string &input, const string &output, bool generatedFilesAreTemporary ) {
-
-#if (DIFFERENT_LEN == 1)
-    convertAcceptDiffLen(input, output, false);
+/* Orders sequences by reverse lexicographic order, writes permutation of strings in file and reorders cycfiles */
+bool TransposeFasta::computeRLO(const string &input, const string &output, bool generatedFilesAreTemporary ) {
+/*
+#if (ACCEPT_DIFFERENT_LEN == 1)
+    if(differentLenDetected_)
+        convertAcceptDiffLen(input, output, 1, false);
+    else
+        convert(output, generatedFilesAreTemporary);
 #else
     convert(output, generatedFilesAreTemporary);
 #endif
+*/
     vector<group*> all_groups_even;
     vector<group*> all_groups_odd;
     int keepOrderRLO[nTotalSeq]; //keeps the association between [position_of_sequence_in_file] = new_assigned_position
@@ -935,6 +922,10 @@ bool TransposeFasta::convertRLO(const string &input, const string &output, bool 
     fclose(outputInfo);
     return true;
 }
+
+
+
+
 
 bool TransposeFasta::inputCycFile( const string &cycPrefix )
 {
