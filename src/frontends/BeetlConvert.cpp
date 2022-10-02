@@ -137,7 +137,7 @@ void launchBeetlConvert()
             unique_ptr<SeqReaderFile> pReader( SeqReaderFile::getReader( fopen( params.getStringValue( "input filename" ).c_str(), "rb" ) ) );
             TransposeFasta trasp;
             trasp.init( pReader.get(), params.getStringValue( "input filename").c_str());
-            trasp.convert( params.getStringValue( "output filename" ), false );
+            trasp.convert( params.getStringValue( "input filename").c_str(), params.getStringValue( "output filename" ), false );
             return;
         }
         else if ( params["output format"] == OUTPUT_FORMAT_BWT_ASCII || params["output format"] == OUTPUT_FORMAT_BWT_RLE )
@@ -188,7 +188,7 @@ void launchBeetlConvert()
             unique_ptr<SeqReaderFile> pReader( SeqReaderFile::getReader( fopen( params.getStringValue( "input filename" ).c_str(), "rb" ) ) );
             TransposeFasta trasp;
             trasp.init( pReader.get(), params.getStringValue( "input filename").c_str());
-            trasp.convert( params.getStringValue( "output filename" ), false );
+            trasp.convert( params.getStringValue( "input filename").c_str(), params.getStringValue( "output filename" ), false ); //added input filename qui
             return;
         }
         else if ( params["output format"] == OUTPUT_FORMAT_BWT_ASCII || params["output format"] == OUTPUT_FORMAT_BWT_RLE )
@@ -311,7 +311,7 @@ void launchBeetlConvert()
             unique_ptr<SeqReaderFile> pReader( SeqReaderFile::getReader( f ) );
             TransposeFasta trasp;
             trasp.init( pReader.get(), params.getStringValue( "input filename").c_str());
-            trasp.convert( params.getStringValue( "output filename" ), false );
+            trasp.convert( params.getStringValue( "input filename").c_str(), params.getStringValue( "output filename" ), false ); //add input filename anche qui
             if ( f != stdin )
                 fclose( f );
             return;

@@ -31,7 +31,7 @@ typedef unsigned char uchar;
 #define BUFFERSIZE 1024// 2^20
 #define ACCEPT_DIFFERENT_LEN 1 //if 0 all sequences must be of the same length
 #define PREPROCESS_RLO 0 //if 1 reverse lexicographical order of sequences and recomputes cycfile
-#define ORDER_BY_LEN 0 //if 1 orders sequences by len before creating cyc files
+#define ORDER_BY_LEN 1 //if 1 orders sequences by len before creating cyc files
 #define TERMINATE_CHAR '$'
 #define DUMMY_CHAR '#'
 #define SIZE_ALPHA 256
@@ -52,10 +52,10 @@ public:
     void init( SeqReaderFile *pReader, const string &input, const bool processQualities = true );
     ~TransposeFasta();
 
-    bool convert( /*const string &input,*/ const string &output, bool generatedFilesAreTemporary = true );   //Input from Fasta file (converts Fasta File into cyc Files)
-    bool convertLenOrder(const string &input, const string &output, bool generatedFilesAreTemporary = true ); //Used if sequences have different length
-    bool convertRLO(const string &input, const string &output, bool generatedFilesAreTemporary = true);
-    bool convertAcceptDiffLen( const string &input, const string &output, bool align = 0, bool generatedFilesAreTemporary = true); //align = 0 -> left, 1-> right for RLO
+    bool convert( const string &input, const string &output, bool generatedFilesAreTemporary = true );   //Input from Fasta file (converts Fasta File into cyc Files)
+    bool convertByLen(const string &input, const string &output, bool generatedFilesAreTemporary = true ); //Used if ORDER_BY_LEN is set to 1
+    bool computeRLO(const string &input, const string &output);
+
     bool inputCycFile( const string &cycPrefix );                                    //Input from cyc files
     bool convertFromCycFileToFastaOrFastq( const string &fileInputPrefix, const string &fileOutput, bool generatedFilesAreTemporary = true, SequenceExtractor *sequenceExtractor = NULL );      //Convert cyc files into Fasta or Fastq File
     bool hasProcessedQualities() const

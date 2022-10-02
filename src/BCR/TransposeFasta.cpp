@@ -149,7 +149,7 @@ int TransposeFasta::findInfoSeq(const string &input, const string &output, vecto
         sizeAlpha++;
     }
 
-    //Creating info file
+    //Creating info file //TODO metti nella cartella random
     std::stringstream infoFileName;
     //string cutNameInput = input.substr(0, strlen(input.c_str())-4);
     std::string cutNameInput = (input.substr(input.find_last_of("/\\") + 1));
@@ -170,7 +170,6 @@ int TransposeFasta::findInfoSeq(const string &input, const string &output, vecto
     fclose(outputInfo);
 
     nTotalSeq = nSeq;
-
 
     //Print permutation by len
     //Creating permutation file
@@ -228,7 +227,8 @@ TransposeFasta::~TransposeFasta()
 
 }
 
-bool TransposeFasta::convert( /*const string &input,*/ const string &output, bool generatedFilesAreTemporary )
+/*
+bool TransposeFasta::convert( const string &input, const string &output, bool generatedFilesAreTemporary )
 {
     vector<vector<uchar> > bufQual;
     vector<FILE *> outputFilesQual;
@@ -395,9 +395,10 @@ bool TransposeFasta::convert( /*const string &input,*/ const string &output, boo
     //    delete pReader;
     return true;
 }
+*/
 
-/* Creates cyc files inserting DUMMY_CHAR to fill length difference between strings */
-bool TransposeFasta::convertDiffLen( const string &input, const string &output, bool align, bool generatedFilesAreTemporary )
+/* Creates cyc files possibly inserting DUMMY_CHAR to fill length difference between strings */
+bool TransposeFasta::convert( const string &input, const string &output, bool generatedFilesAreTemporary )
 {
     vector<vector<uchar> > bufQual;
     vector<FILE *> outputFilesQual;
@@ -406,7 +407,6 @@ bool TransposeFasta::convertDiffLen( const string &input, const string &output, 
         bufQual.resize( cycleNum_, vector<uchar>( BUFFERSIZE ) );
         outputFilesQual.resize( cycleNum_ );
     }
-
 
     //TO DO
     lengthRead = cycleNum_;
@@ -459,12 +459,13 @@ bool TransposeFasta::convertDiffLen( const string &input, const string &output, 
         }
     }
 
-    /* doesn't need but for clarity */
-
+//fill buffer with '#' to manage different length sequences
 #if (ACCEPT_DIFFERENT_LEN == 1)
-    for(int i = 0; i < cycleNum_; i++) {
-        for (int j = 0; j < BUFFERSIZE; j++)
-            buf_[i][j] = DUMMY_CHAR;
+    if(differentLenDetected_) {
+        for (int i = 0; i < cycleNum_; i++) {
+            for (int j = 0; j < BUFFERSIZE; j++)
+                buf_[i][j] = DUMMY_CHAR;
+        }
     }
 #endif
 
@@ -473,13 +474,8 @@ bool TransposeFasta::convertDiffLen( const string &input, const string &output, 
     unsigned int num_write = 0;
     unsigned int charsBuffered = 0;
 
-    //******************************buf[cycleNum_+1];  ********* is cycleNum_ right?
     lengthTexts = 0;
     nSeq = 0;
-    //    num_read = fread(buf,sizeof(uchar),cycleNum_,ifile);
-
-    //    fgets ( buf,1024, ifile ); %%%%%
-    //    while( !feof(ifile) ) %%%%%
 
     int len = 0;
     gzFile fp;
@@ -506,41 +502,41 @@ bool TransposeFasta::convertDiffLen( const string &input, const string &output, 
                 }
             }
             //lengthTexts += ( num_write * cycleNum_ );
-            //reset buffer with #
+            // reset buffer with #
 #if (ACCEPT_DIFFERENT_LEN == 1)
-            for(int i = 0; i < cycleNum_; i++) {
-                for (int j = 0; j < BUFFERSIZE; j++)
-                    buf_[i][j] = DUMMY_CHAR;
+            if(differentLenDetected_) {
+                for (int i = 0; i < cycleNum_; i++) {
+                    for (int j = 0; j < BUFFERSIZE; j++)
+                        buf_[i][j] = DUMMY_CHAR;
+                }
             }
-
 #endif
 
             charsBuffered = 0;
         }
 
-        if(align == 0){
-            //Allineamento a sinistra
-                 for ( SequenceLength i = 0; i < len; ++i ) {
-                     buf_[i][charsBuffered] = seq->seq.s[i];
-
-                     if (processQualities_) {
-                         bufQual[i][charsBuffered] = seq->qual.s[i];
-                     }
-                 }
-        }else{
-            //Allineamento a destra per preprocessing RLO
+#if (PREPROCESS_RLO == 1)
+        //Align right side to compute preprocessing RLO
             int index = cycleNum_-1;
-            for ( int i = len-1; i >= 0; --i )
-            {   printf("posizione i: %d e carattere %c\n", i, seq->seq.s[i]);
+            for ( int i = len-1; i >= 0; --i ){
                 buf_[index][charsBuffered] = seq->seq.s[i];
 
-                if ( processQualities_ )
-                {
+                if (processQualities_ ){
                     bufQual[index][charsBuffered] = seq->qual.s[i];
                 }
                 index--;
             }
+#else
+        //else align left side
+        for ( SequenceLength i = 0; i < len; ++i ) {
+            buf_[i][charsBuffered] = seq->seq.s[i];
+
+            if (processQualities_) {
+                bufQual[i][charsBuffered] = seq->qual.s[i];
+            }
         }
+
+#endif
 
         // increase the counter of chars buffered
         charsBuffered++;
@@ -578,8 +574,13 @@ bool TransposeFasta::convertDiffLen( const string &input, const string &output, 
     return true;
 }
 
-/* Creates cyc files ordering strings by len and filling difference in size with DUMMY_CHAR, prints permutation of strings in file */
-bool TransposeFasta::convertLenOrder(const string &input, const string &output, bool generatedFilesAreTemporary ){
+/* Creates cyc files with strings ordered by len and filling difference in size with DUMMY_CHAR, prints permutation of strings in file */
+bool TransposeFasta::convertByLen(const string &input, const string &output, bool generatedFilesAreTemporary ){
+
+    if(differentLenDetected_ == false) {
+        printf("Asked to order sequences by length but all sequences are the same size\n");
+        return convert(input, output, generatedFilesAreTemporary);
+    }
 
     vector<vector<uchar> > bufQual;
     vector<FILE *> outputFilesQual;
@@ -708,17 +709,20 @@ bool TransposeFasta::convertLenOrder(const string &input, const string &output, 
 
             //check if sequence has to be ignored for now
             if ((position >= base) && (position <= bound)) {
-                int index = len - 1;
+
+                //int index = len - 1;
+
+                //Align always left side
                 int bufferPosition = position % BUFFERSIZE;
                 if(bufferPosition > maxPosition)
                     maxPosition = bufferPosition;
                 for (int i = 0; i < len; i++) {
-                    buf_[i][bufferPosition] = seq->seq.s[index];
+                    buf_[i][bufferPosition] = seq->seq.s[i];
 
                     if (processQualities_) {
-                        bufQual[i][bufferPosition] = seq->qual.s[index];
+                        bufQual[i][bufferPosition] = seq->qual.s[i];
                     }
-                    index--;
+                    //index--;
                 }
                 // increase the counter of chars buffered only if the sequence was inserted
                 charsBuffered++;
@@ -759,7 +763,7 @@ bool TransposeFasta::convertLenOrder(const string &input, const string &output, 
 }
 
 /* Orders sequences by reverse lexicographic order, writes permutation of strings in file and reorders cycfiles */
-bool TransposeFasta::computeRLO(const string &input, const string &output, bool generatedFilesAreTemporary ) {
+bool TransposeFasta::computeRLO(const string &input, const string &output) {
 /*
 #if (ACCEPT_DIFFERENT_LEN == 1)
     if(differentLenDetected_)
@@ -782,7 +786,7 @@ bool TransposeFasta::computeRLO(const string &input, const string &output, bool 
     int permutation[nTotalSeq];
 
     //TODO break if groupsize is 1
-    for (SequenceLength i = 0; i < cycleNum_; i++) {
+    for (int i = cycleNum_-1; i >= 0; --i) {
         vector<group*> *next_groups;
         vector<group*> *current_groups;
         if(i%2 == 0){
@@ -817,7 +821,12 @@ bool TransposeFasta::computeRLO(const string &input, const string &output, bool 
 
         //All characters have been read and put in the right group
         //now sorting inside groups
-        FILE* fp = fopen( "/home/linuxlite/Scrivania/mybounds.txt", "a+" );
+        Filename tmp(output, "_tmp");
+        FILE* fp = fopen( tmp, "w" ); //TODO check all function result
+        if(fp == NULL){
+            printf("Error: can't open file %s\n", tmp);
+            exit(EXIT_FAILURE);
+        }
         int filePosition = 0;
         int realPosition = 0;
         for(int j=0; j<current_groups->size(); j++){
@@ -833,15 +842,16 @@ bool TransposeFasta::computeRLO(const string &input, const string &output, bool 
            /* for(int d=0; d<g->newCharacters.size(); d++){
                 printf("\nGroup limit from %d to %d. character %c position %d\n",g->base, g->bound, g->newCharacters[d].ch, g->newCharacters[d].oldPosition);
             }*/
-            char prev = '#';
+            char prev = DUMMY_CHAR;
             //update position vector
             char next; int howMany=0; int base = g->base;
             for(int h=0; h<g->newCharacters.size(); h++){
+
                 //update position vector
                 keepOrderRLO[g->newCharacters[h].oldPosition] = g->base+h;
                 //update permutation
                 permutation[g->base+h] = g->newCharacters[h].oldPosition;
-                //keepOrderRLO[g->base+h] = g->newCharacters[h].oldPosition;
+
                 next = g->newCharacters[h].ch;
                 fprintf(fp, "%c", next);
                 filePosition++;
@@ -875,9 +885,12 @@ bool TransposeFasta::computeRLO(const string &input, const string &output, bool 
             fprintf(fp, "%c", ch);
             filePosition++;
         }
-
-        fprintf(fp, "\n------------\n");
+        //remove old cyc file
+        remove(fn);
+        //rename temporary file to new cyc file
+        rename(tmp, fn);
         fclose(fp);
+
         //clean useless groups
         for(int c=0; c<current_groups->size(); c++){
             group *p = (*current_groups)[c];
@@ -887,6 +900,7 @@ bool TransposeFasta::computeRLO(const string &input, const string &output, bool 
         //no more first time
         firstTime = false;
     }
+
     //clean memory
     for(int c=0; c<all_groups_odd.size(); c++){
         group *p = all_groups_odd[c];
@@ -909,12 +923,14 @@ bool TransposeFasta::computeRLO(const string &input, const string &output, bool 
     std::string::size_type const p(cutNameInput.find_last_of('.'));
     std::string file_without_extension = cutNameInput.substr(0, p);
 
+    //TODO add temporary directory random name
     infoFileName << TEMP_DIR << "/" << file_without_extension.c_str() << "_RLO_permutation.txt";
     FILE* outputInfo = fopen( infoFileName.str().c_str(),"w" );
     if(!outputInfo) {
         printf("Error while opening file\n");
         exit(EXIT_FAILURE);
     }
+
     for(long int i=0; i<nTotalSeq;i++) {
         fprintf(outputInfo, "%d\n", permutation[i]);
         fflush(outputInfo);
@@ -922,7 +938,6 @@ bool TransposeFasta::computeRLO(const string &input, const string &output, bool 
     fclose(outputInfo);
     return true;
 }
-
 
 
 
