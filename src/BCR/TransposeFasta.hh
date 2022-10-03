@@ -30,7 +30,7 @@ typedef unsigned char uchar;
 //TODO spostare tutto nei parametri giusti
 #define BUFFERSIZE 1024// 2^20
 #define ACCEPT_DIFFERENT_LEN 1 //if 0 all sequences must be of the same length
-#define PREPROCESS_RLO 0 //if 1 reverse lexicographical order of sequences and recomputes cycfile
+#define PREPROCESS_RLO 1 //if 1 reverse lexicographical order of sequences and recomputes cycfile
 #define ORDER_BY_LEN 1 //if 1 orders sequences by len before creating cyc files
 #define TERMINATE_CHAR '$'
 #define DUMMY_CHAR '#'
@@ -54,7 +54,7 @@ public:
 
     bool convert( const string &input, const string &output, bool generatedFilesAreTemporary = true );   //Input from Fasta file (converts Fasta File into cyc Files)
     bool convertByLen(const string &input, const string &output, bool generatedFilesAreTemporary = true ); //Used if ORDER_BY_LEN is set to 1
-    bool computeRLO(const string &input, const string &output);
+    bool computeRLO(const string &input, const string &output, const string &RLOsupport = "");
 
     bool inputCycFile( const string &cycPrefix );                                    //Input from cyc files
     bool convertFromCycFileToFastaOrFastq( const string &fileInputPrefix, const string &fileOutput, bool generatedFilesAreTemporary = true, SequenceExtractor *sequenceExtractor = NULL );      //Convert cyc files into Fasta or Fastq File
@@ -81,6 +81,7 @@ private:
     //    uchar buf_[CYCLENUM][BUFFERSIZE];
     bool processQualities_;
     bool differentLenDetected_;
+    string fileSupportRLO_ = "";
 };
 
 #endif

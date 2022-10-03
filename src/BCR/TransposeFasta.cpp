@@ -102,6 +102,11 @@ int TransposeFasta::findInfoSeq(const string &input, const string &output, vecto
     int sizeAlpha = 0; //different alphabet symbols found
     int maxLen = 0; //max sequence length
 
+    //calculate file name
+    std::string cutNameInput = (input.substr(input.find_last_of("/\\") + 1));
+    std::string::size_type const p(cutNameInput.find_last_of('.'));
+    std::string file_without_extension = cutNameInput.substr(0, p);
+
     gzFile fp;
     kseq_t *seq;
     long int l;
@@ -133,12 +138,44 @@ int TransposeFasta::findInfoSeq(const string &input, const string &output, vecto
         addSeq.len = actualLen;
         infoVector.push_back(addSeq);
     }
+#if (PREPROCESS_RLO == 1)
+    printf("\nRLOO\n");
+    //opening file to print info for RLO
+    std::stringstream RLOsupportFilename;
+    RLOsupportFilename<<TEMP_DIR<<"/"<<file_without_extension.c_str()<<"RLOsupport.txt";
+    FILE* RLOsupport = fopen( RLOsupportFilename.str().c_str(),"w" ); //TODO close
+    if(!RLOsupport) {
+        printf("Error while opening file\n");
+        exit(EXIT_FAILURE);
+    }
+    fileSupportRLO_ = RLOsupportFilename.str().c_str();
+    previousLen = -1;
+    int sameLen = 0; int actualLen = -1;
+#endif
     keepOrder.resize(nSeq);
     sort(infoVector.begin(), infoVector.end(), compareSequence);
-   // if(PRINT_DEBUG) printInfoVector(keepSeq, nSeq);
+
     for(int i = 0; i < nSeq; i++){
         keepOrder[infoVector[i].nSeq] = i;
+#if (PREPROCESS_RLO == 1)   //ad info about sequences
+        actualLen = infoVector[i].len;
+        if(previousLen == actualLen)
+            sameLen++;
+        else{
+            if(previousLen != -1)
+                fprintf(RLOsupport, "%d\n", sameLen);
+            sameLen = 1;
+        }
+        previousLen = actualLen;
+#endif
     }
+
+#if (PREPROCESS_RLO == 1)
+    if(previousLen != -1)
+        fprintf(RLOsupport, "%d\n", sameLen);
+    fflush(RLOsupport);
+    fclose(RLOsupport);
+#endif
 
     //sizeAlpha
     for (dataTypedimAlpha i = 0; i < SIZE_ALPHA-1; ++i)
@@ -152,9 +189,6 @@ int TransposeFasta::findInfoSeq(const string &input, const string &output, vecto
     //Creating info file //TODO metti nella cartella random
     std::stringstream infoFileName;
     //string cutNameInput = input.substr(0, strlen(input.c_str())-4);
-    std::string cutNameInput = (input.substr(input.find_last_of("/\\") + 1));
-    std::string::size_type const p(cutNameInput.find_last_of('.'));
-    std::string file_without_extension = cutNameInput.substr(0, p);
 
     infoFileName << TEMP_DIR << "/" << file_without_extension.c_str() << ".info";
     FILE* outputInfo = fopen( infoFileName.str().c_str(),"w" );
@@ -668,6 +702,7 @@ bool TransposeFasta::convertByLen(const string &input, const string &output, boo
         seq = kseq_init(fp);
         maxPosition = 0;
 
+        //TODO uso buffer o no? Se ne scrivo una alla volta?
         while ((len = kseq_read(seq)) >= 0 && (insertedSequences < nTotalSeq)) {
 
             int position = keepOrder[nSeq];
@@ -709,21 +744,41 @@ bool TransposeFasta::convertByLen(const string &input, const string &output, boo
 
             //check if sequence has to be ignored for now
             if ((position >= base) && (position <= bound)) {
-
-                //int index = len - 1;
-
-                //Align always left side
                 int bufferPosition = position % BUFFERSIZE;
                 if(bufferPosition > maxPosition)
                     maxPosition = bufferPosition;
-                for (int i = 0; i < len; i++) {
+
+            #if (PREPROCESS_RLO == 1)
+                //Align right side to compute preprocessing RLO
+                int index = cycleNum_-1;
+                for ( int i = len-1; i >= 0; --i ){
+                    buf_[index][bufferPosition] = seq->seq.s[i];
+
+                    if (processQualities_ ){
+                        bufQual[index][bufferPosition] = seq->qual.s[i];
+                    }
+                    index--;
+                }
+            #else
+                //else align left side
+                for ( SequenceLength i = 0; i < len; ++i ) {
+                    buf_[i][bufferPosition] = seq->seq.s[i];
+
+                    if (processQualities_) {
+                        bufQual[i][bufferPosition] = seq->qual.s[i];
+                    }
+                }
+            #endif
+
+                //int index = len - 1;
+                /*for (int i = 0; i < len; i++) {
                     buf_[i][bufferPosition] = seq->seq.s[i];
 
                     if (processQualities_) {
                         bufQual[i][bufferPosition] = seq->qual.s[i];
                     }
                     //index--;
-                }
+                }*/
                 // increase the counter of chars buffered only if the sequence was inserted
                 charsBuffered++;
                 // increase the number of inserted sequences
@@ -763,7 +818,220 @@ bool TransposeFasta::convertByLen(const string &input, const string &output, boo
 }
 
 /* Orders sequences by reverse lexicographic order, writes permutation of strings in file and reorders cycfiles */
-bool TransposeFasta::computeRLO(const string &input, const string &output) {
+bool TransposeFasta::computeRLO(const string &input, const string &output, const string &RLOsupport) {
+
+    string testFile = "/home/linuxlite/Scrivania/Start_BEETL/BEETL_mybuild/BEETL-Temp/samelenRLOsupport.txt";
+/*
+#if (ORDER_BY_LEN == 1)
+
+    if(RLOsupport == ""){
+        printf("Can't compute RLO, file RLOsupport is missing\n");
+        exit(EXIT_FAILURE);
+    }
+
+    //prepare file to support RLO
+    string filename(testFile);
+    int number;
+    ifstream input_file(filename);
+    if (!input_file.is_open()) {
+        cerr << "Could not open the file - '"
+             << filename << "'" << endl;
+        exit(EXIT_FAILURE);
+    }
+
+    //global_start = -1;
+   //Per ogni cyc file da n a 0
+        //start = 0
+        //Leggo numero sequenze della stessa lunghezza
+        //Inizio a leggere cycfile da start o da global-start se != -1 e finisco a start+numero sequenze stessa lunghezza
+        //Se '#' metto global_start = start+numero;
+        //Calcolo RLO come prima e salvo caratteri ordinati in un buffer
+        //Scrivo buffer sul cycfile corrispondente da seek(start) a start+numero
+        //start prende = end
+
+    int global_start = -1;
+    int subgroup = -1;
+    char bufRLO_[BUFFERSIZE];
+
+    for (int i = cycleNum_-1; i >= 0; --i) {
+        //RLO parameteres
+        vector<group*> all_groups_even;
+        vector<group*> all_groups_odd;
+        int keepOrderRLO[nTotalSeq]; //keeps the association between [position_of_sequence_in_file] = new_assigned_position
+
+        //apro cycfile corrispondente
+        Filename fn(output, i, "");
+        outputFiles_[i] = fopen(fn, "w+");
+        //imposto l'inizio del cycfile da dove leggere
+        int start = (global_start != -1 ? global_start : 0);
+
+       while(input_file >> subgroup){ //Per ogni sottogruppo
+           //RLO iteration parameters
+           vector < group * > *next_groups;
+           vector < group * > *current_groups;
+
+           bool firstTime = true;
+
+           //TODO first iteration can be improved
+           group *firstGroup = new group;
+           firstGroup->base=0; firstGroup->bound=nTotalSeq-1;
+           all_groups_even.push_back(firstGroup);
+           int permutation[nTotalSeq];
+
+        int begin = start; int end = start+subgroup;
+        fseek(outputFiles_[i],start, SEEK_SET);
+
+
+        for(int i = begin; i < end; ++i) {
+
+            if (i % 2 == 0) {
+                next_groups = &all_groups_odd;
+                current_groups = &all_groups_even;
+            } else {
+                next_groups = &all_groups_even;
+                current_groups = &all_groups_odd;
+            }
+
+            char ch = fgetc(outputFiles_[i]);
+            if (ch == DUMMY_CHAR) {
+                global_start = end;
+                start = end;
+                break;
+            }
+
+            int position = 0;
+            int realPosition
+                    (firstTime ? realPosition = position : realPosition = keepOrderRLO[position]);
+            int IDGroup
+                    (firstTime ? IDGroup = 0 : IDGroup = findGroup(realPosition,
+                                                                   *current_groups)); //TODO only one line vector
+            if (IDGroup != -1) { //if -1 is already ordered
+                group *myGroup = (*current_groups)[IDGroup];
+                charElem newChar;
+                newChar.ch = ch;
+                newChar.oldPosition = position;
+                myGroup->newCharacters.push_back(newChar);
+            }
+            //update position
+            position++;
+        }
+
+        //All characters have been read and put in the right group
+        //now sorting inside groups
+        int bufferPosition = 0;
+        int realPosition = 0;
+
+        for(int j=0; j<current_groups->size(); j++){
+
+            group *g = (*current_groups)[j];
+            while(bufferPosition != g->base){
+                realPosition = permutation[bufferPosition];
+                fseek(outputFiles_[i], realPosition, SEEK_SET);
+                char ch = fgetc(outputFiles_[i]);
+                bufRLO_[bufferPosition] = ch;
+                bufferPosition++;
+            }
+                sort(g->newCharacters.begin(), g->newCharacters.end(), compareCharElem);
+
+                char prev = DUMMY_CHAR;
+                //update position vector
+                char next; int howMany=0; int base = g->base;
+                for(int h=0; h<g->newCharacters.size(); h++){
+
+                    //update position vector
+                    keepOrderRLO[g->newCharacters[h].oldPosition] = g->base+h;
+                    //update permutation
+                    permutation[g->base+h] = g->newCharacters[h].oldPosition;
+
+                    next = g->newCharacters[h].ch;
+                    bufRLO_[bufferPosition] = next;
+                    bufferPosition++;
+                    if((prev != next)){ //character has changed
+                        //create group only if there is more than 1 element
+                        if( (howMany > 1) && (prev != DUMMY_CHAR)) {
+                            group *newGroup = new group;
+                            newGroup->base = base;
+                            newGroup->bound = base + howMany - 1;
+                            next_groups->push_back(newGroup);
+                        }
+                        base = g->base+h;
+                        howMany = 0;
+                    }
+                    howMany++;
+                    prev = next;
+                }
+                //create remaining
+                if( (howMany > 1) && (prev != DUMMY_CHAR)){ //create group only if there is more than 1 element
+                    group *newGroup = new group;
+                    newGroup->base = base;
+                    newGroup->bound = g->bound;
+                    next_groups->push_back(newGroup);
+                }
+            }
+
+            //write last char
+            while(bufferPosition < nTotalSeq){
+                realPosition = permutation[bufferPosition];
+                fseek(outputFiles_[i], realPosition, SEEK_SET);
+                char ch = fgetc(outputFiles_[i]);
+                bufRLO_[bufferPosition] = ch;
+                bufferPosition++;
+            }
+
+            //scrivo RLO sul cyc file vecchio
+            fseek(outputFiles_[i],start,SEEK_SET);
+            fwrite(bufRLO_, sizeof(char), subgroup, outputFiles_[i]);
+
+            //clean useless groups
+            for(int c=0; c<current_groups->size(); c++){
+                group *p = (*current_groups)[c];
+                p->newCharacters.clear();
+                free(p);
+            } current_groups->clear();
+            //no more first time
+            firstTime = false;
+        }
+
+           //clean memory
+           for(int c=0; c<all_groups_odd.size(); c++){
+               group *p = all_groups_odd[c];
+               p->newCharacters.clear();
+               free(p);
+           }
+           for(int c=0; c<all_groups_even.size(); c++){
+               group *p = all_groups_even[c];
+               p->newCharacters.clear();
+               free(p);
+           }
+
+        //rewind support file
+        input_file.clear();
+        input_file.seekg(0);
+    }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+#else*/
 /*
 #if (ACCEPT_DIFFERENT_LEN == 1)
     if(differentLenDetected_)
@@ -785,7 +1053,7 @@ bool TransposeFasta::computeRLO(const string &input, const string &output) {
     all_groups_even.push_back(firstGroup);
     int permutation[nTotalSeq];
 
-    //TODO break if groupsize is 1
+    //TODO break if groupsize is 1?
     for (int i = cycleNum_-1; i >= 0; --i) {
         vector<group*> *next_groups;
         vector<group*> *current_groups;
@@ -824,7 +1092,7 @@ bool TransposeFasta::computeRLO(const string &input, const string &output) {
         Filename tmp(output, "_tmp");
         FILE* fp = fopen( tmp, "w" ); //TODO check all function result
         if(fp == NULL){
-            printf("Error: can't open file %s\n", tmp);
+            printf("Error: can't open file %s%s\n", output.c_str(), "_tmp");
             exit(EXIT_FAILURE);
         }
         int filePosition = 0;
@@ -937,6 +1205,7 @@ bool TransposeFasta::computeRLO(const string &input, const string &output) {
     }
     fclose(outputInfo);
     return true;
+//#endif
 }
 
 

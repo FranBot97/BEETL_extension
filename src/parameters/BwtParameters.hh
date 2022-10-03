@@ -216,6 +216,14 @@ static const string generateCycleQualLabels[] =
     "" // end marker
 };
 
+static const string orderLabels[] =
+{
+        "off",
+        "RLO",
+        "len",
+        ""// end marker
+};
+
 
 
 // Option container
@@ -248,7 +256,7 @@ enum BwtParameterIds
     PARAMETER_PAUSE_BETWEEN_CYCLES,
     PARAMETER_COUNT,
     //miei parametri
-    PARAMETER_ACCEPT_DIFF_LEN,
+//    PARAMETER_ACCEPT_DIFF_LEN,
     PARAMETER_ORDERING
     //end marker
 };
@@ -285,7 +293,7 @@ public:
         addEntry( PARAMETER_GENERATE_CYCLE_BWT, "generate cycle BWT", "--cycle-bwt", "", "PBE=Generate cycle-by-cycle BWT with prediction-based encoding", "off", TYPE_CHOICE, generateCycleBwtLabels );
         addEntry( PARAMETER_GENERATE_CYCLE_QUAL, "generate cycle qualities", "--cycle-qual", "", "PBE=Generate cycle-by-cycle qualities zeroed at correctly-predicted bases", "off", TYPE_CHOICE, generateCycleQualLabels );
         //aggiunti //TODO
-       // addEntry( PARAMETER_)
+        addEntry( PARAMETER_ORDERING, "ordering", "--order", "", "RLO=Preprocess reverse lexicographical order  len=Order sequences by len", "off", TYPE_CHOICE, orderLabels );
 #ifdef _OPENMP
         addEntry( PARAMETER_PARALLEL_PREFETCH, "parallel prefetch", "--no-parallel-prefetch", "", "Disable parallel prefetch of cycle files", "", TYPE_SWITCH | AUTOMATED );
         //    addEntry( PARAMETER_PARALLEL_PROCESSING, "parallel processing", "--no-parallel-processing", "", "Disable parallel processing by letter", "", TYPE_SWITCH | AUTOMATED, parallelProcessingLabels );

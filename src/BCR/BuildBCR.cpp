@@ -371,15 +371,28 @@ int BCRexternalBWT::buildBCR( const string &file1, const string &fileOut, const 
 
        //can't compute two different ordering at the same time, RLO overrides ordering by len
        //TODO set parametri veri da terminale
-        #if( (ACCEPT_DIFFERENT_LEN == 1) && (ORDER_BY_LEN == 1) && (PREPROCESS_RLO == 0) )
-               transp.convertByLen(file1, cycFilesPrefix, false);
-        #elif(ORDER_BY_LEN == 0)
-               transp.convert(file1, cycFilesPrefix, false);
-        #endif
-
-        #if(PREPROCESS_RLO == 1)
-               transp.computeRLO(file1, cycFilesPrefix);
-        #endif
+       transp.convertByLen(file1, cycFilesPrefix, false);
+       transp.computeRLO(file1, cycFilesPrefix);
+        /*#if (ACCEPT_DIFFERENT_LEN == 1)
+            if (( *bwtParams_ )[PARAMETER_ORDERING] == 2)
+                   transp.convertByLen(file1, cycFilesPrefix, false);
+            else if (( *bwtParams_ )[PARAMETER_ORDERING] == 1) {
+                transp.convert(file1, cycFilesPrefix, false);
+                transp.computeRLO(file1, cycFilesPrefix);
+            }
+            else if(( *bwtParams_ )[PARAMETER_ORDERING] == 0)
+                transp.convert(file1, cycFilesPrefix, false);
+        #else
+        if (( *bwtParams_ )[PARAMETER_ORDERING] == 2){
+            printf("Can't compute ordering by len! Please set ACCEPT_DIFFERENT_LEN to 1 and compile again!\n");
+            exit(EXIT_FAILURE);
+        }  else if (( *bwtParams_ )[PARAMETER_ORDERING] == 1) {
+                transp.convert(file1, cycFilesPrefix, false);
+                transp.computeRLO(file1, cycFilesPrefix);
+            }
+            else if(( *bwtParams_ )[PARAMETER_ORDERING] == 0)
+                transp.convert(file1, cycFilesPrefix, false);
+        #endif*/
        //TODO set true to delete file, false instead
         printf("\n-------------------- DONE --------------------------\n");
         delete pReader;
