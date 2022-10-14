@@ -31,7 +31,8 @@ typedef unsigned char uchar;
 #define BUFFERSIZE 1024// 2^20
 #define ACCEPT_DIFFERENT_LEN 1 //if 0 all sequences must be of the same length
 #define PREPROCESS_RLO 1 //if 1 reverse lexicographical order of sequences and recomputes cycfile
-#define ORDER_BY_LEN 1 //if 1 orders sequences by len before creating cyc files
+#define ORDER_BY_LEN 0 //if 1 orders sequences by len before creating cyc files
+#define ALIGN 0 //alignment of sequences: 0 right - 1 left
 #define TERMINATE_CHAR '$'
 #define DUMMY_CHAR '#'
 #define SIZE_ALPHA 256

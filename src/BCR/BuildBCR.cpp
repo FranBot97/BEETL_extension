@@ -41,7 +41,7 @@ bool SAPstopped = false;
 vector<SequenceNumber> sapCount;
 const int sizeAlphaM1 = 4;
 vector<char> whichPileSAP;
-
+SequenceNumber nText_2;
 
 #define SIZEBUFFER 1024 // TBD get rid of this
 unsigned int debugCycle = 0;
@@ -326,6 +326,173 @@ BwtReaderBase *BCRexternalBWT::instantiateBwtReaderForLastCycle( const char *fil
     return pReader;
 }
 
+void BCRexternalBWT::InitialiseTmpFiles()
+{
+    //Creates empty files for each letter in the alphabet
+    for ( AlphabetSymbol i = 0; i < alphabetSize; ++i )
+    {
+        TmpFilename filenameOut( i );
+        if ( i == 0 ) // BWT0 file is created separately
+        {
+            pWriterBwt0_ = instantiateBwtWriterForIntermediateCycle( filenameOut );
+        }
+        else
+        {
+            unique_ptr<BwtWriterBase> emptyPileFile( instantiateBwtWriterForIntermediateCycle( filenameOut ) );
+        }
+
+        const bool permuteQualities = ( bwtParams_->getValue( PARAMETER_PROCESS_QUALITIES ) == PROCESS_QUALITIES_PERMUTE );
+        if ( permuteQualities )
+        {
+            TmpFilename filenameQualOut( "", i, ".qual" );
+            FILE *OutFileBWTQual = fopen( filenameQualOut, "wb" );
+            if ( OutFileBWTQual == NULL )
+            {
+                cerr << "BWT file $: Error opening " << filenameQualOut << endl;
+                exit ( EXIT_FAILURE );
+            }
+            fclose( OutFileBWTQual );
+        }
+
+        if ( bwtParams_->getValue( PARAMETER_GENERATE_LCP ) == true )
+        {
+            TmpFilename filenameOut( "", i, ".lcp" );
+            FILE *OutFileLCP = fopen( filenameOut, "wb" );
+            if ( OutFileLCP == NULL )
+            {
+                cerr << "LCP file: " << filenameOut << " : Error opening " << endl;
+                exit ( EXIT_FAILURE );
+            }
+            fclose( OutFileLCP );
+        }
+
+        //Do we want compute the extended suffix array (position and number of sequence)?
+        if ( BUILD_SA == 1 )  //To store the SA
+        {
+            TmpFilename filenameOut( "sa_", i );
+            FILE *OutFileSA = fopen( filenameOut, "wb" );
+            if ( OutFileSA == NULL )
+            {
+                cerr << "SA file " << ( int )i << " : Error opening " << endl;
+                exit ( EXIT_FAILURE );
+            }
+            fclose( OutFileSA );
+        }
+    }
+
+}
+
+
+char getPredictionBasedEncoding( const char actualBase, char predictedBase, bool &isCorrectlyPredicted )
+{
+#define USE_PBE_ALGO1
+    //#define USE_PBE_ALGO2
+    char result;
+#ifdef USE_PBE_ALGO1
+    if ( predictedBase == notInAlphabet )
+        predictedBase = 'A';
+
+    switch ( predictedBase )
+    {
+        case 'A':
+        case 'C':
+        case 'G':
+        case 'T':
+        case 'N':
+        case '$':
+            if ( actualBase == predictedBase )
+            {
+                result = 'A';
+            }
+            else if ( actualBase == 'A' )
+            {
+                result = predictedBase;
+            }
+            else
+            {
+                result = actualBase;
+            }
+            break;
+
+        default:
+            cerr << "Error: Predicted base = " << predictedBase << endl;
+            assert( false && "predicted base should have been A, C, G or T" );
+    }
+
+    isCorrectlyPredicted = ( result == 'A' );
+    return result;
+#endif // USE_PBE_ALGO1
+
+
+#ifdef USE_PBE_ALGO2
+    // from observations: when the insertion is in the middle of a BWT run of the same letter, it is more frequent to have the following insertions: A<->G and C<->T
+    char predictedBase2;
+    // if (predictedBase == predictedBase2) <- encoding used when we use both the BWT bases before and after the inserting point
+    switch ( predictedBase )
+    {
+        case 'A':
+            predictedBase2 = 'G';
+            break;
+        case 'C':
+            predictedBase2 = 'T';
+            break;
+        case 'G':
+            predictedBase2 = 'A';
+            break;
+        case 'T':
+            predictedBase2 = 'C';
+            break;
+    }
+
+    if ( actualBase == predictedBase )
+    {
+        result = 'A';
+    }
+    else if ( actualBase == predictedBase2 )
+    {
+        result = 'C';
+    }
+    else if ( actualBase == 'A' )
+    {
+        if ( predictedBase != 'C' )
+            result = predictedBase;
+        else
+            result = predictedBase2;
+    }
+    else if ( actualBase == 'C' )
+    {
+        result = predictedBase2;
+    }
+    else
+    {
+        result = actualBase;
+    }
+
+    isCorrectlyPredicted = ( result == 'A' );
+    return result;
+#endif // USE_PBE_ALGO2
+}
+
+
+
+
+// buildBCR -> insertFirstSymbols [X]
+//          -> insertNSymbols  -> insertNSymbols_parallel  [FASE 1]
+//                            -> quicksort [X] [FASE 2]
+//                            -> storeBWT[X] -> storeBWT_parallel [FASE 3]
+
+
+//OK
+//insertFirstSymbols -> inserisce i primi N simboli nel $-BWT
+//storeBWT chiama storeBWT_parallel e rinomina file
+//quicksort ordina
+
+//MODIFY
+//insertNSymbols_parallel
+//storeBWT_parallel
+//insertNSymbols2
+
+
 
 int BCRexternalBWT::buildBCR( const string &file1, const string &fileOut, const BwtParameters *bwtParams )
 {
@@ -371,8 +538,9 @@ int BCRexternalBWT::buildBCR( const string &file1, const string &fileOut, const 
 
        //can't compute two different ordering at the same time, RLO overrides ordering by len
        //TODO set parametri veri da terminale
-       transp.convertByLen(file1, cycFilesPrefix, false);
-       transp.computeRLO(file1, cycFilesPrefix);
+       transp.convert(file1, cycFilesPrefix, false);
+       printf("DONE\n");
+       //transp.computeRLO(file1, cycFilesPrefix);
         /*#if (ACCEPT_DIFFERENT_LEN == 1)
             if (( *bwtParams_ )[PARAMETER_ORDERING] == 2)
                    transp.convertByLen(file1, cycFilesPrefix, false);
@@ -447,6 +615,8 @@ int BCRexternalBWT::buildBCR( const string &file1, const string &fileOut, const 
         Logger::out() << "Total length (without $): " << lengthTot << "\n";
         Logger::out() << "Total length (with $): " << lengthTot_plus_eof << "\n";
     }
+
+    nText_2 = nText;
 
     Logger_if( LOG_SHOW_IF_VERBOSE ) Logger::out() << "Partial File name for input: " << cycFilesPrefix << " \n\n";
 
@@ -570,8 +740,6 @@ int BCRexternalBWT::buildBCR( const string &file1, const string &fileOut, const 
     else
         InsertFirstsymbols( newSymb, newQual );
 
-
-
     // Update iteration counters
     ++currentIteration;
     currentCycleFileNum += cycleFileNumIncrement;
@@ -654,10 +822,6 @@ int BCRexternalBWT::buildBCR( const string &file1, const string &fileOut, const 
         Logger_if( LOG_SHOW_IF_VERBOSE ) Logger::out() << "Iteration " << ( int ) currentIteration << " - symbols in position " << ( int ) currentCycleFileNum << endl;
         Logger::out() << "Starting iteration " << currentIteration << ", time now: " << timer.timeNow();
         Logger::out() << "Starting iteration " << currentIteration << ", usage: " << timer << endl;
-
-
-
-
 
 
 
@@ -744,12 +908,12 @@ int BCRexternalBWT::buildBCR( const string &file1, const string &fileOut, const 
     pauseBetweenCyclesIfNeeded ();
 
     //The last inserted symbol was in position 0 (or it is newSymb[j]),
-    //the next symbol (to insert) is in position m-1, that is, I have to inserted the symbols $
+    //the next symbol (to insert) is in position m-1, that is, I have to insert the symbols $
     Logger_if( LOG_SHOW_IF_VERBOSE ) Logger::out() << "Final iteration " << ( int ) currentIteration << " - Inserting $=" << ( int )terminatorChar << "=" << terminatorChar << " symbols" << endl;
     Logger::out() << "Starting iteration " << currentIteration << ", time now: " << timer.timeNow();
     Logger::out() << "Starting iteration " << currentIteration << ", usage: " << timer << endl;
     assert( currentIteration == lengthRead );
-    for ( SequenceNumber j = 0 ; j < nText; j++ )
+    for ( SequenceNumber j = 0 ; j < nText_2 ; j++ ) //o si riempie tutto di $ o si vanno a leggere dal cyc file $
     {
         newSymb[j] = '$';
         if ( processQualities )
@@ -860,64 +1024,9 @@ int BCRexternalBWT::buildBCR( const string &file1, const string &fileOut, const 
     return permuteQualities ? 2 : 1;
 } // ~buildBCR
 
-void BCRexternalBWT::InitialiseTmpFiles()
-{
-    //Creates empty files for each letter in the alphabet
-    for ( AlphabetSymbol i = 0; i < alphabetSize; ++i )
-    {
-        TmpFilename filenameOut( i );
-        if ( i == 0 ) // BWT0 file is created separately
-        {
-            pWriterBwt0_ = instantiateBwtWriterForIntermediateCycle( filenameOut );
-        }
-        else
-        {
-            unique_ptr<BwtWriterBase> emptyPileFile( instantiateBwtWriterForIntermediateCycle( filenameOut ) );
-        }
-
-        const bool permuteQualities = ( bwtParams_->getValue( PARAMETER_PROCESS_QUALITIES ) == PROCESS_QUALITIES_PERMUTE );
-        if ( permuteQualities )
-        {
-            TmpFilename filenameQualOut( "", i, ".qual" );
-            FILE *OutFileBWTQual = fopen( filenameQualOut, "wb" );
-            if ( OutFileBWTQual == NULL )
-            {
-                cerr << "BWT file $: Error opening " << filenameQualOut << endl;
-                exit ( EXIT_FAILURE );
-            }
-            fclose( OutFileBWTQual );
-        }
-
-        if ( bwtParams_->getValue( PARAMETER_GENERATE_LCP ) == true )
-        {
-            TmpFilename filenameOut( "", i, ".lcp" );
-            FILE *OutFileLCP = fopen( filenameOut, "wb" );
-            if ( OutFileLCP == NULL )
-            {
-                cerr << "LCP file: " << filenameOut << " : Error opening " << endl;
-                exit ( EXIT_FAILURE );
-            }
-            fclose( OutFileLCP );
-        }
-
-        //Do we want compute the extended suffix array (position and number of sequence)?
-        if ( BUILD_SA == 1 )  //To store the SA
-        {
-            TmpFilename filenameOut( "sa_", i );
-            FILE *OutFileSA = fopen( filenameOut, "wb" );
-            if ( OutFileSA == NULL )
-            {
-                cerr << "SA file " << ( int )i << " : Error opening " << endl;
-                exit ( EXIT_FAILURE );
-            }
-            fclose( OutFileSA );
-        }
-    }
-
-}
-
 void BCRexternalBWT::InsertFirstsymbols( uchar const *newSymb, uchar const *newSymbQual, const int subSequenceNum )
 {
+
     for ( SequenceNumber j = 0 ; j < nText; j++ )
     {
         vectTriple[j] = sortElement( 0, nText * subSequenceNum + j + 1, j );
@@ -1038,7 +1147,7 @@ void BCRexternalBWT::InsertFirstsymbols( uchar const *newSymb, uchar const *newS
         delete [] newEle;
     }
 }
-
+/*
 void BCRexternalBWT::InsertNsymbols( uchar const *newSymb, SequenceLength iterationNum, uchar const *newQual )
 {
     LetterNumber numchar = 0;
@@ -1062,13 +1171,408 @@ void BCRexternalBWT::InsertNsymbols( uchar const *newSymb, SequenceLength iterat
       clog << " => pile " << j << ": " << pileStarts[j] << "-" << pileStarts[j+1] <<endl;
       }
     */
+/*
     vector< vector< FragmentedVector< sortElement > > > parallelVectTriplePerNewPile( alphabetSize, vector< FragmentedVector< sortElement > >( alphabetSize ) );
+
+    ///FASE 1 ------- UPDATE VECTTRIPLE
 
     int parallelPile;
     //    for (int parallelPile = alphabetSize-2; parallelPile >= 0; --parallelPile)
     #pragma omp parallel for
     for ( parallelPile = 0; parallelPile < alphabetSize; ++parallelPile )
     {   //fa sorting ?
+        //se parallelo si può fare fa questa
+        InsertNsymbols_parallelPile( newSymb, iterationNum, newQual, parallelPile, pileStarts[parallelPile], pileStarts[parallelPile + 1], parallelVectTriplePerNewPile[parallelPile] );
+    }
+
+    Logger_if( LOG_SHOW_IF_VERBOSE ) Logger::out() << "Finished inserting symbols in RAM, time now: " << timer.timeNow();
+
+    if ( verboseEncode == 1 )
+    {
+        cerr << "The segments before inserting are:\n";
+        uchar *buffer = new uchar[SIZEBUFFER];
+        AlphabetSymbol mmm = 0;
+        while ( mmm < alphabetSize )
+        {
+            TmpFilename filenameIn( mmm );
+            //printf("===currentPile= %d\n",mmm);
+            FILE *InFileBWT = fopen( filenameIn, "r" );
+            for ( SequenceNumber g = 0 ; g < SIZEBUFFER; g++ )
+                buffer[g] = '\0';
+            numchar = fread( buffer, sizeof( uchar ), SIZEBUFFER, InFileBWT );
+            cerr << "B[" << mmm << "]:\t";
+            if ( numchar == 0 )
+                cerr  << "empty\n";
+            else
+                cerr  << buffer << "\n";
+            fclose( InFileBWT );
+            mmm++;
+        }
+        delete [] buffer;
+    } // ~if verboseEncode
+
+    if ( verboseEncode == 1 )
+    {
+        if ( bwtParams_->getValue( PARAMETER_GENERATE_LCP ) == true )
+        {
+            SequenceLength *bufferLCP = new SequenceLength[SIZEBUFFER];
+            AlphabetSymbol mmm = 0;
+            while ( mmm < alphabetSize )
+            {
+                TmpFilename filenameInLCP( "", mmm, ".lcp" );
+                FILE *InFileLCP = fopen( filenameInLCP, "rb" );
+                for ( LetterNumber g = 0 ; g < SIZEBUFFER; g++ )
+                    bufferLCP[g] = 0;
+                numchar = fread( bufferLCP, sizeof( SequenceLength ), SIZEBUFFER, InFileLCP );
+                cerr << "L[" << ( int )mmm << "]:\t";
+                if ( numchar == 0 )
+                    cerr  << "empty";
+                else
+                    for ( SequenceNumber g = 0 ; g < numchar; g++ )
+                        cerr  << ( int )bufferLCP[g] << " ";
+                cerr  << "\n";
+                fclose( InFileLCP );
+                mmm++;
+            }
+            delete [] bufferLCP;
+        }
+
+        cerr << "NewSymbols " ;
+        for ( SequenceNumber g = 0 ; g < nText; g++ )
+        {
+            cerr << newSymb[g] << " ";
+        }
+        cerr << endl;
+        cerr << "Before Sorting" << endl;
+        cerr << "Q  ";
+        for ( SequenceNumber g = 0 ; g < nText; g++ )
+        {
+            cerr << ( int )vectTriple[g].pileN << " ";
+        }
+        cerr << endl;
+        cerr << "P  ";
+        for ( SequenceNumber g = 0 ; g < nText; g++ )
+        {
+            cerr << vectTriple[g].posN  << " ";
+        }
+        cerr << endl;
+        cerr << "N  ";
+        for ( SequenceNumber g = 0 ; g < nText; g++ )
+        {
+            cerr << vectTriple[g].seqN  << " ";
+        }
+        cerr << endl;
+    } // ~if verboseEncode
+
+#ifdef XXX
+    delete [] counters;
+#endif
+
+    /// FASE 2 ---------- RIORDINAMENTO PER PILA>POSIZIONE
+
+ //       quickSort(vectTriple);
+   vectTriple.clear(); //pulisce vettore
+    //per ogni simbolo alfabeto trovato
+    for ( uint newPile = 0; newPile < alphabetSize; ++newPile )
+    {
+        for ( uint prevPile = 0; prevPile < alphabetSize; ++prevPile )
+        {
+            if ( !parallelVectTriplePerNewPile[prevPile][newPile].empty() )
+            {
+                //                vectTriple.insert( vectTriple.end(), parallelVectTriplePerNewPile[prevPile][newPile].begin(), parallelVectTriplePerNewPile[prevPile][newPile].end() );
+                parallelVectTriplePerNewPile[prevPile][newPile].appendTo( vectTriple );
+                //aggiungo nuovo calcolo pile ?
+            }
+        }
+    }
+    printf("SIZE AT ITERATION-> %lu", vectTriple.capacity());
+    Logger_if( LOG_FOR_DEBUGGING )
+    {
+        Logger::out() << "BEFORE POPPING after sorting" << endl;
+        Logger::out() << "U  ";
+        for ( SequenceNumber g = 0 ; g < nText; g++ )
+        {
+            Logger::out() << newSymb[g] << " ";
+        }
+        Logger::out() << endl;
+        Logger::out() << "Q  ";
+        for ( SequenceNumber g = 0 ; g < nText; g++ )
+        {
+            Logger::out() << ( int )vectTriple[g].pileN << " ";
+        }
+        Logger::out() << endl;
+        Logger::out() << "P  ";
+        for ( SequenceNumber g = 0 ; g < nText; g++ )
+        {
+            Logger::out() << vectTriple[g].posN  << " ";
+        }
+        Logger::out() << endl;
+        Logger::out() << "N  ";
+        for ( SequenceNumber g = 0 ; g < nText; g++ )
+        {
+            Logger::out() << vectTriple[g].seqN  << " ";
+        }
+        Logger::out() << endl;
+
+        if ( bwtParams_->getValue( PARAMETER_GENERATE_LCP ) == true )
+        {
+            Logger::out() << "C  ";
+            for ( SequenceNumber g = 0 ; g < nText; g++ )
+            {
+                Logger::out() << ( int )vectTriple[g].getLcpCurN()  << " ";
+            }
+            Logger::out() << endl;
+            Logger::out() << "S  ";
+            for ( SequenceNumber g = 0 ; g < nText; g++ )
+            {
+                Logger::out() << ( int )vectTriple[g].getLcpSucN()  << " ";
+            }
+            Logger::out() << endl;
+        }
+    } // ~if verboseEncode
+
+  /*if(countZ > 0) {
+        printf("\nELEMENT TO REMOVE: %d\nSIZE BEFORE %lu",countZ, vectTriple.capacity());
+        for (int i = 0; i < countZ; ++i) {
+            vectTriple.pop_back();
+       printf("\nSIZE AFTER %lu", vectTriple.capacity());
+        }
+        countZ = 0;
+    }*/
+/*
+    printf("SIZE AT ITERATION-> %lu", vectTriple.capacity());
+    Logger_if( LOG_FOR_DEBUGGING )
+    {
+        Logger::out() << "AFTER POPPING After Sorting" << endl;
+        Logger::out() << "U  ";
+        for ( SequenceNumber g = 0 ; g < nText; g++ )
+        {
+            Logger::out() << newSymb[g] << " ";
+        }
+        Logger::out() << endl;
+        Logger::out() << "Q  ";
+        for ( SequenceNumber g = 0 ; g < nText; g++ )
+        {
+            Logger::out() << ( int )vectTriple[g].pileN << " ";
+        }
+        Logger::out() << endl;
+        Logger::out() << "P  ";
+        for ( SequenceNumber g = 0 ; g < nText; g++ )
+        {
+            Logger::out() << vectTriple[g].posN  << " ";
+        }
+        Logger::out() << endl;
+        Logger::out() << "N  ";
+        for ( SequenceNumber g = 0 ; g < nText; g++ )
+        {
+            Logger::out() << vectTriple[g].seqN  << " ";
+        }
+        Logger::out() << endl;
+
+        if ( bwtParams_->getValue( PARAMETER_GENERATE_LCP ) == true )
+        {
+            Logger::out() << "C  ";
+            for ( SequenceNumber g = 0 ; g < nText; g++ )
+            {
+                Logger::out() << ( int )vectTriple[g].getLcpCurN()  << " ";
+            }
+            Logger::out() << endl;
+            Logger::out() << "S  ";
+            for ( SequenceNumber g = 0 ; g < nText; g++ )
+            {
+                Logger::out() << ( int )vectTriple[g].getLcpSucN()  << " ";
+            }
+            Logger::out() << endl;
+        }
+    } // ~if verboseEncode
+
+
+    //FASE 3 ---------- SCRITTURA BWT NEI FILE
+
+//a dx
+    if ( ( *bwtParams_ )[PARAMETER_SAP_ORDERING] == true && !SAPstopped )
+    {
+        Logger_if( LOG_FOR_DEBUGGING )
+        {
+            Logger::out() << "Before2:" << endl;
+            for ( SequenceNumber i = 0; i < nText; i++ )
+                Logger::out() << "Triple[" << i << "]: " << vectTriple[i].seqN << " " << vectTriple[i].posN << " " << ( int )vectTriple[i].pileN << ", newSymb=" << newSymb[i] << endl;
+        }
+
+        vector <sortElement> vectTriple2( nText );
+        //            uchar *nextSymb2 = new uchar[nText];
+        //            uchar *newSymb3 = new uchar[nText];
+
+        vector<SequenceNumber> sapAccumulatedCount( sapCount.size(), 0 );
+        vector<SequenceNumber> sapCount2; //copia
+        try
+        {
+            sapCount2.resize( sapCount.size() * sizeAlphaM1, 0 ); //4^x
+        }
+        catch ( const std::exception &e )
+        {
+            cerr << "not enough RAM. Stopping SAP" << endl;
+            vector<SequenceNumber> emptySapCount;
+            sapCount.swap( emptySapCount );
+            SAPstopped = true;
+        }
+
+        if ( !SAPstopped )
+        {   //calcola count cumulativi
+            for ( unsigned int sapSet = 0; sapSet < sapCount.size(); ++sapSet )
+                sapAccumulatedCount[sapSet] = ( sapSet > 0 ? sapAccumulatedCount[sapSet - 1] : 0 ) + sapCount[sapSet];
+
+            SequenceNumber sapActiveSetCount = 0;
+            SequenceNumber sapActiveBaseCount = 0;
+            SequenceNumber sapVeryActiveSetCount = 0;
+            SequenceNumber sapVeryActiveBaseCount = 0;
+            FILE* fp = fopen( "/home/linuxlite/Scrivania/bounds.txt", "a" );
+            #pragma omp parallel for
+            for ( unsigned int sapSet = 0; sapSet < sapCount.size(); ++sapSet )
+            {
+                if ( sapCount[sapSet] == 0 )
+                    continue;
+
+                if ( sapCount[sapSet] > 1 )
+                {
+                    #pragma omp critical
+                    {
+                        ++sapActiveSetCount;
+                        sapActiveBaseCount += sapCount[sapSet];
+                    }
+                }
+                Logger_if( LOG_FOR_DEBUGGING ) Logger::out() << "sapCount[" << sapSet << "]=" << sapCount[sapSet] << endl;
+                //da dove parte la zona 'A' 'C' ecc.. ?
+                SequenceNumber startSeqNum = (  sapSet > 0 ?sapAccumulatedCount[sapSet - 1] : 0 ); //currentSeq;
+                //dove finisce
+                SequenceNumber endSeqNum = sapAccumulatedCount[sapSet]; //currentSeq + sapCount[sapSet];
+                SequenceNumber pos = startSeqNum; //per aggiornare vectTriple2
+                fprintf(fp, "\n--- BOUNDS: [%d  %d]\n", startSeqNum, endSeqNum);
+
+                //Per ogni carattere del mio alfabeto
+                for ( AlphabetSymbol j = 0 ; j < sizeAlphaM1; j++ )
+                { //per ogni carattere del cycfile da startSeqNum a endSeqNum
+                    for ( SequenceNumber i = startSeqNum; i < endSeqNum; ++i )
+                    {
+                        int s = vectTriple[i].seqN; //Qual è la sequenza in i-esima posizione ordinata?
+                        //s = oldPosition (numero sequenza originaria)
+                        if ( whichPileSAP[( int )newSymb[s]] == -1 )
+                        {
+                            cerr << "Error SAP with char " << newSymb[s] << " at position " << s << endl;
+                            assert( false );
+                        }
+                        //Vado a vedere che simbolo c'è in s-esima posizione, guardo in che pila è (A,C,G,T)
+                        if ( whichPileSAP[( int )newSymb[s]] == j ) //Se è nella pila che sto calcolando ok
+                        {   //riempio la prima posizione libera in vectTriple2 con
+                            // la riga di vectTriple[i]
+                            //scambia solo seqN, lascia invariati posN e pileN
+                            vectTriple2[pos] = vectTriple[i];
+                            vectTriple2[pos].posN = vectTriple[pos].posN; //??
+                            vectTriple2[pos].pileN = vectTriple[pos].pileN; //??
+                            ++pos;
+                            ++sapCount2[sapSet + j * sapCount.size()]; //Cosa fa?
+
+                            printf("\n J: %d     i :  %d    startSeqNum:  %d     endSeqNum: %d     s: %d   newSymb[s] : %c\n",
+                                   j, i, startSeqNum, endSeqNum, s, newSymb[s]);
+                        }
+                    }
+                }
+
+                if ( newSymb[vectTriple2[startSeqNum].seqN] != newSymb[vectTriple2[endSeqNum - 1].seqN] )
+                {
+                    #pragma omp critical
+                    {
+                        ++sapVeryActiveSetCount;
+                        sapVeryActiveBaseCount += sapCount[sapSet];
+                    }
+                }
+
+                //            currentSeq += sapCount[sapSet];
+                assert( pos == endSeqNum );
+            }
+            fprintf(fp, "\n------------\n");
+            fclose(fp);
+            Logger::out() << "SAP active sets=" << sapActiveSetCount << ", active bases=" << sapActiveBaseCount << ", veryActive sets=" << sapVeryActiveSetCount << ", veryActive bases=" << sapVeryActiveBaseCount << endl;
+            if ( sapActiveSetCount == 0 )
+            {
+                SAPstopped = true;
+            }
+            vectTriple.swap( vectTriple2 );
+            sapCount.swap( sapCount2 );
+
+            Logger_if( LOG_FOR_DEBUGGING )
+            {
+                Logger::out() << "After2:" << endl;
+                for ( SequenceNumber i = 0; i < nText; i++ )
+                    Logger::out() << "Triple[" << i << "]: " << vectTriple[i].seqN << " " << vectTriple[i].posN << " " << ( int )vectTriple[i].pileN << ", newSymb=" << newSymb[i] << endl;
+                Logger::out() << "sapCount=";
+                for ( unsigned int i = 0; i < sapCount.size(); ++i )
+                {
+                    if ( i % sizeAlphaM1 == 0 )
+                        Logger::out() << "   ";
+                    if ( i && i % ( sizeAlphaM1 * sizeAlphaM1 ) == 0 )
+                        Logger::out() << endl << "  ";
+                    Logger::out() << sapCount[i] << ",";
+                }
+                Logger::out() << endl;
+            }
+        }
+    }
+
+    Logger_if( LOG_SHOW_IF_VERBOSE ) Logger::out() << "Writing intermediate BWT files to disk, time now: " << timer.timeNow();
+
+    if ( bwtParams_->getValue( PARAMETER_GENERATE_LCP ) == false )
+    {
+        storeBWT( newSymb, newQual );
+    }
+    else
+    {
+        storeBWTandLCP( newSymb );
+    }
+
+    //cerr << "End storing BWT" << endl;
+
+    //Do we want to compute the generalized suffix array (position and number of sequence)?
+    if ( BUILD_SA == 1 )
+    {
+        storeSA( iterationNum );
+    }
+
+    //  delete pReader;
+}
+*/
+
+
+void BCRexternalBWT::InsertNsymbols( uchar const *newSymb, SequenceLength iterationNum, uchar const *newQual )
+{
+    LetterNumber numchar = 0;
+
+    // We first calculate at which index each pile starts
+    vector<SequenceNumber> pileStarts( alphabetSize + 1 );
+    pileStarts[0] = 0;
+    SequenceNumber index = 0;
+    cerr << "\n ------------ Size di vectTriple\n" << vectTriple.size();
+    for ( int pile = 1; pile < alphabetSize + 1; ++pile )
+    {
+        while ( index < nText && vectTriple[index].pileN < pile )
+            ++index;
+        pileStarts[pile] = index;
+    }
+    /*
+      for (unsigned int j = 0; j < alphabetSize-1; ++j)
+      {
+      clog << " => pile " << j << ": " << pileStarts[j] << "-" << pileStarts[j+1] <<endl;
+      }
+    */
+    vector< vector< FragmentedVector< sortElement > > > parallelVectTriplePerNewPile( alphabetSize, vector< FragmentedVector< sortElement > >( alphabetSize ) );
+
+    int parallelPile;
+    //    for (int parallelPile = alphabetSize-2; parallelPile >= 0; --parallelPile)
+#pragma omp parallel for
+
+    for ( parallelPile = 0; parallelPile < alphabetSize; ++parallelPile )
+    {
+     //   cerr << "\n PILE PRINT ======== parallelPile " << parallelPile << " pileStarts[parallelPIle] " << pileStarts[parallelPile] << "  pileStarts[paral + 1] " << pileStarts[parallelPile + 1];
         InsertNsymbols_parallelPile( newSymb, iterationNum, newQual, parallelPile, pileStarts[parallelPile], pileStarts[parallelPile + 1], parallelVectTriplePerNewPile[parallelPile] );
     }
 
@@ -1156,8 +1660,7 @@ void BCRexternalBWT::InsertNsymbols( uchar const *newSymb, SequenceLength iterat
 #endif
 
     //    quickSort(vectTriple);
-    vectTriple.clear(); //pulisce vettore
-    //per ogni simbolo alfabeto trovato
+    vectTriple.clear();
     for ( uint newPile = 0; newPile < alphabetSize; ++newPile )
     {
         for ( uint prevPile = 0; prevPile < alphabetSize; ++prevPile )
@@ -1166,7 +1669,6 @@ void BCRexternalBWT::InsertNsymbols( uchar const *newSymb, SequenceLength iterat
             {
                 //                vectTriple.insert( vectTriple.end(), parallelVectTriplePerNewPile[prevPile][newPile].begin(), parallelVectTriplePerNewPile[prevPile][newPile].end() );
                 parallelVectTriplePerNewPile[prevPile][newPile].appendTo( vectTriple );
-                //aggiungo nuovo calcolo pile ?
             }
         }
     }
@@ -1217,7 +1719,7 @@ void BCRexternalBWT::InsertNsymbols( uchar const *newSymb, SequenceLength iterat
     } // ~if verboseEncode
 
 
-//a dx
+
     if ( ( *bwtParams_ )[PARAMETER_SAP_ORDERING] == true && !SAPstopped )
     {
         Logger_if( LOG_FOR_DEBUGGING )
@@ -1246,7 +1748,7 @@ void BCRexternalBWT::InsertNsymbols( uchar const *newSymb, SequenceLength iterat
         }
 
         if ( !SAPstopped )
-        {   //calcola count cumulativi
+        {
             for ( unsigned int sapSet = 0; sapSet < sapCount.size(); ++sapSet )
                 sapAccumulatedCount[sapSet] = ( sapSet > 0 ? sapAccumulatedCount[sapSet - 1] : 0 ) + sapCount[sapSet];
 
@@ -1254,8 +1756,7 @@ void BCRexternalBWT::InsertNsymbols( uchar const *newSymb, SequenceLength iterat
             SequenceNumber sapActiveBaseCount = 0;
             SequenceNumber sapVeryActiveSetCount = 0;
             SequenceNumber sapVeryActiveBaseCount = 0;
-            FILE* fp = fopen( "/home/linuxlite/Scrivania/bounds.txt", "a" );
-            #pragma omp parallel for
+#pragma omp parallel for
             for ( unsigned int sapSet = 0; sapSet < sapCount.size(); ++sapSet )
             {
                 if ( sapCount[sapSet] == 0 )
@@ -1263,53 +1764,42 @@ void BCRexternalBWT::InsertNsymbols( uchar const *newSymb, SequenceLength iterat
 
                 if ( sapCount[sapSet] > 1 )
                 {
-                    #pragma omp critical
+#pragma omp critical
                     {
                         ++sapActiveSetCount;
                         sapActiveBaseCount += sapCount[sapSet];
                     }
                 }
-                //[ 4 3 0 1] sapCount      accumulated> [ 4 7 7 8 ]
-                Logger_if( LOG_FOR_DEBUGGING ) Logger::out() << "sapCount[" << sapSet << "]=" << sapCount[sapSet] << endl;
-                //da dove parte la zona 'A' 'C' ecc.. ?
-                SequenceNumber startSeqNum = (  sapSet > 0 ?sapAccumulatedCount[sapSet - 1] : 0 ); //currentSeq;
-                //dove finisce
-                SequenceNumber endSeqNum = sapAccumulatedCount[sapSet]; //currentSeq + sapCount[sapSet];
-                SequenceNumber pos = startSeqNum; //per aggiornare vectTriple2
-                fprintf(fp, "\n--- BOUNDS: [%d  %d]\n", startSeqNum, endSeqNum);
 
-                //Per ogni carattere del mio alfabeto
+                Logger_if( LOG_FOR_DEBUGGING ) Logger::out() << "sapCount[" << sapSet << "]=" << sapCount[sapSet] << endl;
+                SequenceNumber startSeqNum = ( sapSet > 0 ? sapAccumulatedCount[sapSet - 1] : 0 ); //currentSeq;
+                SequenceNumber endSeqNum = sapAccumulatedCount[sapSet]; //currentSeq + sapCount[sapSet];
+                SequenceNumber pos = startSeqNum;
+
                 for ( AlphabetSymbol j = 0 ; j < sizeAlphaM1; j++ )
-                { //per ogni carattere del cycfile da startSeqNum a endSeqNum
+                {
                     for ( SequenceNumber i = startSeqNum; i < endSeqNum; ++i )
                     {
-                        int s = vectTriple[i].seqN; //Qual è la sequenza in i-esima posizione ordinata?
-                        //s = oldPosition (numero sequenza originaria)
+                        int s = vectTriple[i].seqN;
                         if ( whichPileSAP[( int )newSymb[s]] == -1 )
                         {
                             cerr << "Error SAP with char " << newSymb[s] << " at position " << s << endl;
                             assert( false );
                         }
-                        //Vado a vedere che simbolo c'è in s-esima posizione
-                        if ( whichPileSAP[( int )newSymb[s]] == j ) //Se è uguale a quello che sto cercando ordino
-                        {   //riempio la prima posizione libera in vectTriple2 con
-                            // la riga di vectTriple[i]
-                            //scambia solo seqN, lascia invariati posN e pileN
+                        if ( whichPileSAP[( int )newSymb[s]] == j )
+                        {
                             vectTriple2[pos] = vectTriple[i];
-                            vectTriple2[pos].posN = vectTriple[pos].posN; //??
-                            vectTriple2[pos].pileN = vectTriple[pos].pileN; //??
+                            vectTriple2[pos].posN = vectTriple[pos].posN;
+                            vectTriple2[pos].pileN = vectTriple[pos].pileN;
                             ++pos;
-                            ++sapCount2[sapSet + j * sapCount.size()]; //Cosa fa?
-
-                            printf("\n J: %d     i :  %d    startSeqNum:  %d     endSeqNum: %d     s: %d   newSymb[s] : %c\n",
-                                   j, i, startSeqNum, endSeqNum, s, newSymb[s]);
+                            ++sapCount2[sapSet + j * sapCount.size()];
                         }
                     }
                 }
 
                 if ( newSymb[vectTriple2[startSeqNum].seqN] != newSymb[vectTriple2[endSeqNum - 1].seqN] )
                 {
-                    #pragma omp critical
+#pragma omp critical
                     {
                         ++sapVeryActiveSetCount;
                         sapVeryActiveBaseCount += sapCount[sapSet];
@@ -1319,8 +1809,7 @@ void BCRexternalBWT::InsertNsymbols( uchar const *newSymb, SequenceLength iterat
                 //            currentSeq += sapCount[sapSet];
                 assert( pos == endSeqNum );
             }
-            fprintf(fp, "\n------------\n");
-            fclose(fp);
+
             Logger::out() << "SAP active sets=" << sapActiveSetCount << ", active bases=" << sapActiveBaseCount << ", veryActive sets=" << sapVeryActiveSetCount << ", veryActive bases=" << sapVeryActiveBaseCount << endl;
             if ( sapActiveSetCount == 0 )
             {
@@ -1470,6 +1959,8 @@ void BCRexternalBWT::InsertNsymbols_parallelPile( uchar const *newSymb, Sequence
                     }
                 }
                 assert( ( *pReader )( ( char * )&foundSymbol, 1 ) == 1 );
+              //  printf("\n --- FOUND %c ----\n", foundSymbol);
+
                 if ( whichPile[( int )foundSymbol] < alphabetSize ) {}
                 else
                 {
@@ -1486,234 +1977,140 @@ void BCRexternalBWT::InsertNsymbols_parallelPile( uchar const *newSymb, Sequence
                 Logger::out() << "toRead=" << toRead << ", foundSymbol=" << foundSymbol  << ", counters=" << counters << endl;
             }
 
-            //cerr << "toRead " << toRead << "Found Symbol is " << foundSymbol << "\n";
+            cerr << "toRead " << toRead << "Found Symbol is " << foundSymbol << "\n";
+#if (ALIGN == 1)
+            if(foundSymbol != DUMMY_CHAR){
+                //I have to update the value in vectTriple[k].posN, it must contain the position of the new symbol
+                //#ifdef XXX
+                //vectTriple[k].posN = counters.count_[whichPile[(int)foundSymbol]];
 
+                /*MIO*/
+                /*      if(foundSymbol == '#'){
+                       printf("ok\n");
+                       k++;
+                       continue;
+                       }*/
 
-            //I have to update the value in vectTriple[k].posN, it must contain the position of the new symbol
-            //#ifdef XXX
-            //vectTriple[k].posN = counters.count_[whichPile[(int)foundSymbol]];
-            newVectTripleItem.posN = counters.count_[whichPile[( int )foundSymbol]];
-            //#endif
-            //cerr << "--New posN[k]=" << (int)posN[k] <<endl;
-            if ( verboseEncode == 1 )
-                cerr << "\nInit New P[" << k << "]= " << vectTriple[k].posN << endl; //TODO: update this to newVectTripleItem
-
-            for ( AlphabetSymbol g = 0 ; g < currentPile; g++ )  //I have to count in each pile g= 0... (currentPile-1)-pile
-            {
-                //                vectTriple[k].posN = vectTriple[k].posN + tableOcc_[g].count_[whichPile[(int)foundSymbol]];
-                newVectTripleItem.posN += tableOcc_[g].count_[whichPile[( int )foundSymbol]];
-                //cerr << "--New posN[k]=" << (int)posN[k] << " tableOcc[g][whichPile[(int)symbol]] " << tableOcc[g][whichPile[(int)symbol]] <<endl;
+                //FINE MIO
+                //  printf("PRIMA DEL FAULT %c\n", foundSymbol);
+                newVectTripleItem.posN = counters.count_[whichPile[( int )foundSymbol]]; //SEGMENTATION FAULT QUI
+                //#endif
+                //cerr << "--New posN[k]=" << (int)posN[k] <<endl;
                 if ( verboseEncode == 1 )
+                    cerr << "\nInit New P[" << k << "]= " << vectTriple[k].posN << endl; //TODO: update this to newVectTripleItem
+
+                for ( AlphabetSymbol g = 0 ; g < currentPile; g++ )  //I have to count in each pile g= 0... (currentPile-1)-pile
                 {
-                    cerr << "g= " << ( int )g << " symbol= " << ( int )foundSymbol << " whichPile[symbol]= "
-                         << ( int )whichPile[( int )foundSymbol] << endl;
-                    cerr << "Add New posN[k]=" << vectTriple[k].posN << " tableOcc[g][whichPile[(int)symbol]] "
-                         << tableOcc_[g].count_[whichPile[( int )foundSymbol]] << endl;
+                    //                vectTriple[k].posN = vectTriple[k].posN + tableOcc_[g].count_[whichPile[(int)foundSymbol]];
+                    newVectTripleItem.posN += tableOcc_[g].count_[whichPile[( int )foundSymbol]];
+                    //cerr << "--New posN[k]=" << (int)posN[k] << " tableOcc[g][whichPile[(int)symbol]] " << tableOcc[g][whichPile[(int)symbol]] <<endl;
+                    if ( verboseEncode == 1 )
+                    {
+                        cerr << "g= " << ( int )g << " symbol= " << ( int )foundSymbol << " whichPile[symbol]= "
+                             << ( int )whichPile[( int )foundSymbol] << endl;
+                        cerr << "Add New posN[k]=" << vectTriple[k].posN << " tableOcc[g][whichPile[(int)symbol]] "
+                             << tableOcc_[g].count_[whichPile[( int )foundSymbol]] << endl;
+                    }
+
                 }
+                //I have to insert the new symbol in the symbol-pile
+                assert( whichPile[( int )foundSymbol] < alphabetSize );
+/*            if(whichPile[foundSymbol] == 'Z'){
+                printf("\nFOUND Z\n");
+                k++;
+                continue;
+            }*/
+                //            vectTriple[k].pileN=whichPile[(int)foundSymbol];
+                newVectTripleItem.pileN = whichPile[( int )foundSymbol];
+                //cerr << "New posN[k]=" << (int)posN[k] << " New pileN[k]=" << (int)pileN[k] << endl;
+                if ( verboseEncode == 1 )
+                    cerr << "j  : Q[q]=" << ( int )vectTriple[k].pileN << " P[q]=" << ( LetterNumber )vectTriple[k].posN <<  " N[q]=" << ( SequenceNumber )vectTriple[k].seqN << endl;
 
+                newVectTripleItem.seqN = vectTriple[k].seqN;
+                newVectTripleItem.setLcpCurN( vectTriple[k].getLcpCurN() );
+                newVectTripleItem.setLcpSucN( vectTriple[k].getLcpSucN() );
+                //            vectTriple[k] = newVectTripleItem;
+
+                newVectTriplePerNewPile[ newVectTripleItem.pileN ].push_back( newVectTripleItem );
+
+            }else{
             }
-            //I have to insert the new symbol in the symbol-pile
-            assert( whichPile[( int )foundSymbol] < alphabetSize );
-            //            vectTriple[k].pileN=whichPile[(int)foundSymbol];
-            newVectTripleItem.pileN = whichPile[( int )foundSymbol];
-            //cerr << "New posN[k]=" << (int)posN[k] << " New pileN[k]=" << (int)pileN[k] << endl;
-            if ( verboseEncode == 1 )
-                cerr << "j  : Q[q]=" << ( int )vectTriple[k].pileN << " P[q]=" << ( LetterNumber )vectTriple[k].posN <<  " N[q]=" << ( SequenceNumber )vectTriple[k].seqN << endl;
 
-            newVectTripleItem.seqN = vectTriple[k].seqN;
-            newVectTripleItem.setLcpCurN( vectTriple[k].getLcpCurN() );
-            newVectTripleItem.setLcpSucN( vectTriple[k].getLcpSucN() );
-            //            vectTriple[k] = newVectTripleItem;
+#else
+            if(foundSymbol != TERMINATE_CHAR){
+                //I have to update the value in vectTriple[k].posN, it must contain the position of the new symbol
+                //#ifdef XXX
+                //vectTriple[k].posN = counters.count_[whichPile[(int)foundSymbol]];
 
-            newVectTriplePerNewPile[ newVectTripleItem.pileN ].push_back( newVectTripleItem );
+                /*MIO*/
+                /*      if(foundSymbol == '#'){
+                       printf("ok\n");
+                       k++;
+                       continue;
+                       }*/
 
+                //FINE MIO
+                //  printf("PRIMA DEL FAULT %c\n", foundSymbol);
+                newVectTripleItem.posN = counters.count_[whichPile[( int )foundSymbol]]; //SEGMENTATION FAULT QUI
+                //#endif
+                //cerr << "--New posN[k]=" << (int)posN[k] <<endl;
+                if ( verboseEncode == 1 )
+                    cerr << "\nInit New P[" << k << "]= " << vectTriple[k].posN << endl; //TODO: update this to newVectTripleItem
+
+                for ( AlphabetSymbol g = 0 ; g < currentPile; g++ )  //I have to count in each pile g= 0... (currentPile-1)-pile
+                {
+                    //                vectTriple[k].posN = vectTriple[k].posN + tableOcc_[g].count_[whichPile[(int)foundSymbol]];
+                    newVectTripleItem.posN += tableOcc_[g].count_[whichPile[( int )foundSymbol]];
+                    //cerr << "--New posN[k]=" << (int)posN[k] << " tableOcc[g][whichPile[(int)symbol]] " << tableOcc[g][whichPile[(int)symbol]] <<endl;
+                    if ( verboseEncode == 1 )
+                    {
+                        cerr << "g= " << ( int )g << " symbol= " << ( int )foundSymbol << " whichPile[symbol]= "
+                             << ( int )whichPile[( int )foundSymbol] << endl;
+                        cerr << "Add New posN[k]=" << vectTriple[k].posN << " tableOcc[g][whichPile[(int)symbol]] "
+                             << tableOcc_[g].count_[whichPile[( int )foundSymbol]] << endl;
+                    }
+
+                }
+                //I have to insert the new symbol in the symbol-pile
+                assert( whichPile[( int )foundSymbol] < alphabetSize );
+/*            if(whichPile[foundSymbol] == 'Z'){
+                printf("\nFOUND Z\n");
+                k++;
+                continue;
+            }*/
+                //            vectTriple[k].pileN=whichPile[(int)foundSymbol];
+                newVectTripleItem.pileN = whichPile[( int )foundSymbol];
+                //cerr << "New posN[k]=" << (int)posN[k] << " New pileN[k]=" << (int)pileN[k] << endl;
+                if ( verboseEncode == 1 )
+                    cerr << "j  : Q[q]=" << ( int )vectTriple[k].pileN << " P[q]=" << ( LetterNumber )vectTriple[k].posN <<  " N[q]=" << ( SequenceNumber )vectTriple[k].seqN << endl;
+
+                newVectTripleItem.seqN = vectTriple[k].seqN;
+                newVectTripleItem.setLcpCurN( vectTriple[k].getLcpCurN() );
+                newVectTripleItem.setLcpSucN( vectTriple[k].getLcpSucN() );
+                //            vectTriple[k] = newVectTripleItem;
+
+                newVectTriplePerNewPile[ newVectTripleItem.pileN ].push_back( newVectTripleItem );
+
+            }else{
+                nText--;
+            }
+#endif
             k++;
         }
         j = k;
 
-        assert ( j == endIndex ); // while loop removed, as we now only process one pile here
+   assert ( j == (endIndex) ); // while loop removed, as we now only process one pile here
     }
 
     delete pReader;
     pReader = NULL;
 }
 
-void BCRexternalBWT::storeBWT( uchar const *newSymb, uchar const *newQual )
-{
-
-    //I have found the position where I have to insert the chars in the position t of the each text
-    //Now I have to update the BWT in each file.
-
-    // We first calculate at which index each pile starts
-    vector<SequenceNumber> pileStarts( alphabetSize + 1 );
-    pileStarts[0] = 0;
-    SequenceNumber index = 0;
-    for ( int pile = 1; pile < alphabetSize + 1; ++pile )
-    {
-        while ( index < nText && vectTriple[index].pileN < pile )
-            ++index;
-        pileStarts[pile] = index;
-    }
-
-
-    int parallelPile;
-    //    for (int parallelPile = alphabetSize-2; parallelPile >= 0; --parallelPile)
-    #pragma omp parallel for
-    for ( parallelPile = 0; parallelPile < alphabetSize; ++parallelPile )
-    {
-        storeBWT_parallelPile( newSymb, newQual, parallelPile, pileStarts[parallelPile], pileStarts[parallelPile + 1] );
-    }
-
-
-    //Renaming new to old
-    for ( AlphabetSymbol g = 0 ; g < alphabetSize; g++ )
-    {
-        TmpFilename filenameIn( g );
-        TmpFilename filenameOut( "new_", g );
-        //cerr << "Filenames:" << filenameIn << "\t" <<filenameOut << endl;
-        FILE *OutFileBWT = fopen( filenameOut, "rb" );
-
-        if ( OutFileBWT != NULL ) //If it exists
-        {
-            fclose( OutFileBWT );
-            if ( remove( filenameIn ) != 0 )
-                cerr << filenameIn << ": Error deleting file" << endl;
-            else if ( safeRename( filenameOut, filenameIn ) )
-                cerr << filenameOut << ": Error renaming " << endl;
-        }
-
-        if ( verboseEncode == 1 )
-        {
-            struct stat results;
-            if ( stat( filenameIn, &results ) == 0 )
-                // The size of the file in bytes is in results.st_size
-                //fprintf(tmpFile,"%s\t%u\n", filenameIn, results.st_size);
-                cerr << filenameIn << "\t" << results.st_size << endl;
-            else
-                //fprintf(tmpFile,"An error occurred %s\n", filenameIn);
-                cerr << "An error occurred" << endl;
-        }
-
-        const bool permuteQualities = ( bwtParams_->getValue( PARAMETER_PROCESS_QUALITIES ) == PROCESS_QUALITIES_PERMUTE );
-        if ( permuteQualities )
-        {
-            TmpFilename filenameQualIn( "", g, ".qual" );
-            TmpFilename filenameQualOut( "new_", g, ".qual" );
-            FILE *OutQualFileBWT = fopen( filenameQualOut, "rb" );
-
-            if ( OutQualFileBWT != NULL ) //If it exists
-            {
-                fclose( OutQualFileBWT );
-                if ( remove( filenameQualIn ) != 0 )
-                    cerr << filenameQualIn << ": Error deleting file" << endl;
-                else if ( safeRename( filenameQualOut, filenameQualIn ) )
-                    cerr << filenameQualOut << ": Error renaming " << endl;
-            }
-        }
-    }
-    //cerr <<  endl;
-    //fprintf(tmpFile,"\n");
-    //fclose(tmpFile);
-    //  delete pReader;
-    //  delete pWriter;
-
-}
-
-char getPredictionBasedEncoding( const char actualBase, char predictedBase, bool &isCorrectlyPredicted )
-{
-#define USE_PBE_ALGO1
-    //#define USE_PBE_ALGO2
-    char result;
-#ifdef USE_PBE_ALGO1
-    if ( predictedBase == notInAlphabet )
-        predictedBase = 'A';
-
-    switch ( predictedBase )
-    {
-        case 'A':
-        case 'C':
-        case 'G':
-        case 'T':
-        case 'N':
-        case '$':
-            if ( actualBase == predictedBase )
-            {
-                result = 'A';
-            }
-            else if ( actualBase == 'A' )
-            {
-                result = predictedBase;
-            }
-            else
-            {
-                result = actualBase;
-            }
-            break;
-
-        default:
-            cerr << "Error: Predicted base = " << predictedBase << endl;
-            assert( false && "predicted base should have been A, C, G or T" );
-    }
-
-    isCorrectlyPredicted = ( result == 'A' );
-    return result;
-#endif // USE_PBE_ALGO1
-
-
-#ifdef USE_PBE_ALGO2
-    // from observations: when the insertion is in the middle of a BWT run of the same letter, it is more frequent to have the following insertions: A<->G and C<->T
-    char predictedBase2;
-    // if (predictedBase == predictedBase2) <- encoding used when we use both the BWT bases before and after the inserting point
-    switch ( predictedBase )
-    {
-        case 'A':
-            predictedBase2 = 'G';
-            break;
-        case 'C':
-            predictedBase2 = 'T';
-            break;
-        case 'G':
-            predictedBase2 = 'A';
-            break;
-        case 'T':
-            predictedBase2 = 'C';
-            break;
-    }
-
-    if ( actualBase == predictedBase )
-    {
-        result = 'A';
-    }
-    else if ( actualBase == predictedBase2 )
-    {
-        result = 'C';
-    }
-    else if ( actualBase == 'A' )
-    {
-        if ( predictedBase != 'C' )
-            result = predictedBase;
-        else
-            result = predictedBase2;
-    }
-    else if ( actualBase == 'C' )
-    {
-        result = predictedBase2;
-    }
-    else
-    {
-        result = actualBase;
-    }
-
-    isCorrectlyPredicted = ( result == 'A' );
-    return result;
-#endif // USE_PBE_ALGO2
-}
-
 void BCRexternalBWT::storeBWT_parallelPile( uchar const *newSymb, uchar const *newQual, unsigned int parallelPile, SequenceNumber startIndex, SequenceNumber endIndex )
 {
     if ( 0 )
     {
-        #pragma omp critical
+#pragma omp critical
         {
             clog << "storeBWT_parallelPile: pile=" << parallelPile << " from " << startIndex << " to " << endIndex << endl;
         }
@@ -1893,6 +2290,94 @@ void BCRexternalBWT::storeBWT_parallelPile( uchar const *newSymb, uchar const *n
         predictionStatistics.outputToFile( pbeStatsFilename );
     }
 }
+
+void BCRexternalBWT::storeBWT( uchar const *newSymb, uchar const *newQual )
+{
+
+    //I have found the position where I have to insert the chars in the position t of the each text
+    //Now I have to update the BWT in each file.
+
+    // We first calculate at which index each pile starts
+    vector<SequenceNumber> pileStarts( alphabetSize + 1 );
+    pileStarts[0] = 0;
+    SequenceNumber index = 0;
+    for ( int pile = 1; pile < alphabetSize + 1; ++pile )
+    {
+        while ( index < nText && vectTriple[index].pileN < pile )
+            ++index;
+        pileStarts[pile] = index;
+    }
+
+
+    int parallelPile;
+    //    for (int parallelPile = alphabetSize-2; parallelPile >= 0; --parallelPile)
+#pragma omp parallel for
+    for ( parallelPile = 0; parallelPile < alphabetSize; ++parallelPile )
+    {
+        storeBWT_parallelPile( newSymb, newQual, parallelPile, pileStarts[parallelPile], pileStarts[parallelPile + 1] );
+    }
+
+
+    //Renaming new to old
+    for ( AlphabetSymbol g = 0 ; g < alphabetSize; g++ )
+    {
+        TmpFilename filenameIn( g );
+        TmpFilename filenameOut( "new_", g );
+        //cerr << "Filenames:" << filenameIn << "\t" <<filenameOut << endl;
+        FILE *OutFileBWT = fopen( filenameOut, "rb" );
+
+        if ( OutFileBWT != NULL ) //If it exists
+        {
+            fclose( OutFileBWT );
+            if ( remove( filenameIn ) != 0 )
+                cerr << filenameIn << ": Error deleting file" << endl;
+            else if ( safeRename( filenameOut, filenameIn ) )
+                cerr << filenameOut << ": Error renaming " << endl;
+        }
+
+        if ( verboseEncode == 1 )
+        {
+            struct stat results;
+            if ( stat( filenameIn, &results ) == 0 )
+                // The size of the file in bytes is in results.st_size
+                //fprintf(tmpFile,"%s\t%u\n", filenameIn, results.st_size);
+                cerr << filenameIn << "\t" << results.st_size << endl;
+            else
+                //fprintf(tmpFile,"An error occurred %s\n", filenameIn);
+                cerr << "An error occurred" << endl;
+        }
+
+        const bool permuteQualities = ( bwtParams_->getValue( PARAMETER_PROCESS_QUALITIES ) == PROCESS_QUALITIES_PERMUTE );
+        if ( permuteQualities )
+        {
+            TmpFilename filenameQualIn( "", g, ".qual" );
+            TmpFilename filenameQualOut( "new_", g, ".qual" );
+            FILE *OutQualFileBWT = fopen( filenameQualOut, "rb" );
+
+            if ( OutQualFileBWT != NULL ) //If it exists
+            {
+                fclose( OutQualFileBWT );
+                if ( remove( filenameQualIn ) != 0 )
+                    cerr << filenameQualIn << ": Error deleting file" << endl;
+                else if ( safeRename( filenameQualOut, filenameQualIn ) )
+                    cerr << filenameQualOut << ": Error renaming " << endl;
+            }
+        }
+    }
+    //cerr <<  endl;
+    //fprintf(tmpFile,"\n");
+    //fclose(tmpFile);
+    //  delete pReader;
+    //  delete pWriter;
+
+}
+
+
+
+
+
+
+
 
 void BCRexternalBWT::storeEntireBWT( const string &fn )
 {
@@ -2273,7 +2758,6 @@ void BCRexternalBWT::storeEntirePairSA( const char *fn )
 
     delete [] buffer;
 }
-
 
 void BCRexternalBWT::storeEntireSAfromPairSA( const char *fn )
 {

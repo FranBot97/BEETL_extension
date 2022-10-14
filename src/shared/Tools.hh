@@ -29,7 +29,7 @@ using std::string;
 using std::vector;
 
 
-#define verboseEncode 0
+#define verboseEncode 1
 #define verboseDecode 0
 #define deletePartialBWT 0 //If it is set to 1, it deletes the BWT-segments files and keeps the entire BWT, otherwise renames them.
 #define deletePartialLCP 0	//If it is set to 1, it deletes the LCP-segments files and keeps the entire LCP, otherwise renames them.

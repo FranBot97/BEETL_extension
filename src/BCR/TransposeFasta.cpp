@@ -139,7 +139,7 @@ int TransposeFasta::findInfoSeq(const string &input, const string &output, vecto
         infoVector.push_back(addSeq);
     }
 #if (PREPROCESS_RLO == 1)
-    printf("\nRLOO\n");
+    printf("\nRLO\n");
     //opening file to print info for RLO
     std::stringstream RLOsupportFilename;
     RLOsupportFilename<<TEMP_DIR<<"/"<<file_without_extension.c_str()<<"RLOsupport.txt";
@@ -560,15 +560,20 @@ bool TransposeFasta::convert( const string &input, const string &output, bool ge
                 }
                 index--;
             }
+            if(index >= 0)
+                buf_[index][charsBuffered] = TERMINATE_CHAR;
 #else
         //else align left side
-        for ( SequenceLength i = 0; i < len; ++i ) {
+        SequenceLength i;
+        for ( i = 0; i < len; ++i ) {
             buf_[i][charsBuffered] = seq->seq.s[i];
 
             if (processQualities_) {
                 bufQual[i][charsBuffered] = seq->qual.s[i];
             }
         }
+        if(i <= cycleNum_-1)
+            buf_[i][charsBuffered] = TERMINATE_CHAR;
 
 #endif
 
@@ -759,16 +764,21 @@ bool TransposeFasta::convertByLen(const string &input, const string &output, boo
                     }
                     index--;
                 }
+                if(index >= 0)
+                    buf_[index][bufferPosition] = TERMINATE_CHAR;
             #else
                 //else align left side
-                for ( SequenceLength i = 0; i < len; ++i ) {
+                SequenceLength i;
+                for ( i = 0; i < len; ++i ) {
                     buf_[i][bufferPosition] = seq->seq.s[i];
 
                     if (processQualities_) {
                         bufQual[i][bufferPosition] = seq->qual.s[i];
                     }
                 }
-            #endif
+                 if(i <= cycleNum_-1)
+                    buf_[i][bufferPosition] = TERMINATE_CHAR;
+#endif
 
                 //int index = len - 1;
                 /*for (int i = 0; i < len; i++) {
@@ -820,7 +830,7 @@ bool TransposeFasta::convertByLen(const string &input, const string &output, boo
 /* Orders sequences by reverse lexicographic order, writes permutation of strings in file and reorders cycfiles */
 bool TransposeFasta::computeRLO(const string &input, const string &output, const string &RLOsupport) {
 
-    string testFile = "/home/linuxlite/Scrivania/Start_BEETL/BEETL_mybuild/BEETL-Temp/samelenRLOsupport.txt";
+   // string testFile = "/home/linuxlite/Scrivania/Start_BEETL/BEETL_mybuild/BEETL-Temp/samelenRLOsupport.txt";
 /*
 #if (ORDER_BY_LEN == 1)
 
@@ -1044,14 +1054,18 @@ bool TransposeFasta::computeRLO(const string &input, const string &output, const
 */
     vector<group*> all_groups_even;
     vector<group*> all_groups_odd;
+    char cycFileContent[nTotalSeq];
     int keepOrderRLO[nTotalSeq]; //keeps the association between [position_of_sequence_in_file] = new_assigned_position
+    int permutation[nTotalSeq]; //keeps the association between [position i] = sequence assigned at position i
     bool firstTime = true;
 
     //TODO first iteration can be improved
     group *firstGroup = new group;
     firstGroup->base=0; firstGroup->bound=nTotalSeq-1;
-    all_groups_even.push_back(firstGroup);
-    int permutation[nTotalSeq];
+    if( (cycleNum_-1) %2 == 0 )
+        all_groups_even.push_back(firstGroup);
+    else
+        all_groups_odd.push_back(firstGroup);
 
     //TODO break if groupsize is 1?
     for (int i = cycleNum_-1; i >= 0; --i) {
@@ -1067,26 +1081,26 @@ bool TransposeFasta::computeRLO(const string &input, const string &output, const
 
         Filename fn(output, i, "");
         outputFiles_[i] = fopen(fn, "r");
+
         char ch;
         int position = 0;
         //TODO seek all'inizio
         while ((ch = fgetc(outputFiles_[i])) != EOF) {
-            int realPosition
-            (firstTime ? realPosition=position : realPosition=keepOrderRLO[position] );
-            int IDGroup
-            (firstTime ? IDGroup=0 : IDGroup=findGroup(realPosition, *current_groups) ); //TODO only one line vector
-            if(IDGroup != -1) { //if -1 is already ordered
-                group *myGroup = (*current_groups)[IDGroup];
+           int realPosition = (firstTime ? position : keepOrderRLO[position] );
 
+           int IDGroup = (firstTime ? 0 : findGroup(realPosition, *current_groups) ); //TODO only one line vector
+           if(IDGroup != -1) { //if -1 is already ordered
+                group *myGroup = (*current_groups)[IDGroup];
                 charElem newChar;
                 newChar.ch = ch;
                 newChar.oldPosition = position;
                 myGroup->newCharacters.push_back(newChar);
-            }
+            }else{
+               cycFileContent[keepOrderRLO[position]] = ch;
+           }
             //update position
             position++;
         }
-
         //All characters have been read and put in the right group
         //now sorting inside groups
         Filename tmp(output, "_tmp");
@@ -1098,30 +1112,46 @@ bool TransposeFasta::computeRLO(const string &input, const string &output, const
         int filePosition = 0;
         int realPosition = 0;
         for(int j=0; j<current_groups->size(); j++){
+
             group *g = (*current_groups)[j];
+
+            //Se c'è un gap tra due gruppi allora vanno inseriti simboli già ordinati
+            //da prendere tramite fseek dal cyc file.
             while(filePosition != g->base){
-                realPosition = permutation[filePosition];
-                fseek(outputFiles_[i], realPosition, SEEK_SET);
-                char ch = fgetc(outputFiles_[i]);
-                fprintf(fp, "%c", ch);
+                char chToWrite = cycFileContent[filePosition];
+                fprintf(fp, "%c", chToWrite);
                 filePosition++;
+
+              /*
+                //Devo andare a vedere qual è il carattere da inserire in quel punto del file
+                //esempio:
+                // GRUPPO    GAP      GRUPPO    GRUPPO
+                // [0     5][6][7][8][9    12][13     16]
+                //vado a vedere quale sequenza è stata ordinata in 6° posizione-> sequenza 2 -> seek(posizione 2) nel vecchio cyc file-> scrivo simbolo
+                realPosition = permutation[filePosition];  //ottengo la posizione nel file dove andare a prendere il simbolo
+                fseek(outputFiles_[i], realPosition, SEEK_SET); //mi posiziono
+                char ch = fgetc(outputFiles_[i]); //prendo il simbolo corrispondente
+                fprintf(fp, "%c", ch); //lo scrivo nel nuovo cyc file
+                filePosition++;
+                */
+
             }
+
             sort(g->newCharacters.begin(), g->newCharacters.end(), compareCharElem);
            /* for(int d=0; d<g->newCharacters.size(); d++){
                 printf("\nGroup limit from %d to %d. character %c position %d\n",g->base, g->bound, g->newCharacters[d].ch, g->newCharacters[d].oldPosition);
             }*/
             char prev = DUMMY_CHAR;
-            //update position vector
             char next; int howMany=0; int base = g->base;
             for(int h=0; h<g->newCharacters.size(); h++){
 
                 //update position vector
                 keepOrderRLO[g->newCharacters[h].oldPosition] = g->base+h;
                 //update permutation
-                permutation[g->base+h] = g->newCharacters[h].oldPosition;
+                permutation[g->base+h] = g->newCharacters[h].oldPosition; //non è corretta
 
                 next = g->newCharacters[h].ch;
-                fprintf(fp, "%c", next);
+                fprintf(fp, "%c", next); //il carattere è ordinato, lo stampo
                 filePosition++;
                 if((prev != next)){ //character has changed
                     //create group only if there is more than 1 element
@@ -1146,12 +1176,16 @@ bool TransposeFasta::computeRLO(const string &input, const string &output, const
             }
         }
         //write last char
+        //stampo gli ultimi caratteri rimasti fuori dai gruppi
         while(filePosition < nTotalSeq){
-            realPosition = permutation[filePosition];
+            char chToWrite = cycFileContent[filePosition];
+            fprintf(fp, "%c", chToWrite );
+            filePosition++;
+            /*realPosition = permutation[filePosition];
             fseek(outputFiles_[i], realPosition, SEEK_SET);
             char ch = fgetc(outputFiles_[i]);
             fprintf(fp, "%c", ch);
-            filePosition++;
+            filePosition++;*/
         }
         //remove old cyc file
         remove(fn);
@@ -1205,7 +1239,6 @@ bool TransposeFasta::computeRLO(const string &input, const string &output, const
     }
     fclose(outputInfo);
     return true;
-//#endif
 }
 
 

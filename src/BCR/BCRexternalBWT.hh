@@ -47,7 +47,7 @@ public:
     vector <int> recoverNSequenceForward( char const * , char const *, SequenceNumber );
     int recoverNSequenceForwardSequentially( char const * , char const *, SequenceNumber );
     void storeBWT( uchar const *, uchar const *qual = NULL );
-    void storeBWT_parallelPile( uchar const *newSymb, uchar const *newQual, unsigned int parallelPile, SequenceNumber startIndex, SequenceNumber endIndex );
+    /*rimosso const*/ void storeBWT_parallelPile( uchar const *newSymb, uchar const *newQual, unsigned int parallelPile, SequenceNumber startIndex, SequenceNumber endIndex );
     void storeEntireBWT( const string & );
     void storeSA( SequenceLength );
     void storeEntirePairSA( const char * );
