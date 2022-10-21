@@ -27,6 +27,8 @@
 //TODO spostare tutto in TransposeFasta.hh oppure parameters
 using namespace std;
 KSEQ_INIT(gzFile, gzread);
+long myTotalLen;
+long maxSeqLen;
 
 struct seqInfo{
 public:
@@ -139,13 +141,14 @@ int TransposeFasta::findInfoSeq(const string &input, const string &output, vecto
         infoVector.push_back(addSeq);
     }
 #if (PREPROCESS_RLO == 1)
-    printf("\nRLO\n");
+    //printf("\nRLO\n");
     //opening file to print info for RLO
     std::stringstream RLOsupportFilename;
     RLOsupportFilename<<TEMP_DIR<<"/"<<file_without_extension.c_str()<<"RLOsupport.txt";
     FILE* RLOsupport = fopen( RLOsupportFilename.str().c_str(),"w" ); //TODO close
     if(!RLOsupport) {
-        printf("Error while opening file\n");
+        printf("Error while opening file %s\n", RLOsupportFilename.str().c_str());
+	perror("RLO file\n");
         exit(EXIT_FAILURE);
     }
     fileSupportRLO_ = RLOsupportFilename.str().c_str();
@@ -219,6 +222,9 @@ int TransposeFasta::findInfoSeq(const string &input, const string &output, vecto
         fflush(outputPerm);
     }
     fclose(outputPerm);
+
+    myTotalLen = lenTot;
+    maxSeqLen = maxLen;
 
     return maxLen;
 }
@@ -584,6 +590,7 @@ bool TransposeFasta::convert( const string &input, const string &output, bool ge
     }
 
     // write the rest
+#pragma omp parallel for num_threads(4) //aggiunto #pragma
     for ( SequenceLength i = 0; i < cycleNum_; i++ )
     {
         num_write = fwrite ( buf_[i].data(), sizeof( uchar ), charsBuffered, outputFiles_[i] );
@@ -607,8 +614,14 @@ bool TransposeFasta::convert( const string &input, const string &output, bool ge
         }
     }
 
+
+    lengthTexts = myTotalLen;
+    lengthRead = maxSeqLen;
+
+
     std::cout << "Number of sequences reading/writing: " << nSeq << "\n";
     std::cout << "Number of characters reading/writing: " << lengthTexts << "\n";
+
 
     return true;
 }
@@ -1240,9 +1253,6 @@ bool TransposeFasta::computeRLO(const string &input, const string &output, const
     fclose(outputInfo);
     return true;
 }
-
-
-
 
 bool TransposeFasta::inputCycFile( const string &cycPrefix )
 {

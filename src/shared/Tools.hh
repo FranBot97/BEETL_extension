@@ -29,14 +29,14 @@ using std::string;
 using std::vector;
 
 
-#define verboseEncode 1
+#define verboseEncode 0
 #define verboseDecode 0
 #define deletePartialBWT 0 //If it is set to 1, it deletes the BWT-segments files and keeps the entire BWT, otherwise renames them.
 #define deletePartialLCP 0	//If it is set to 1, it deletes the LCP-segments files and keeps the entire LCP, otherwise renames them.
 //#define deletePartialSA 0 //If it is set to 1, it deletes the SA-segments files and keeps the entire BWT, otherwise renames them.
-#define deleteCycFile 0 //If it is set to 1, it deletes the cycs files.
+#define deleteCycFile 1 //If it is set to 1, it deletes the cycs files.
 #define BUILD_SA 0   //If it is set to 1, it computes the GSA (seqID, position) and the SA (position of the concatenated sequences without a further end-marker).
-#define BUILD_LCP 1	//If it is set to 1, it uses larger structures to allow --generate-lcp
+#define BUILD_LCP 0	//If it is set to 1, it uses larger structures to allow --generate-lcp
 
 class Tools
 {

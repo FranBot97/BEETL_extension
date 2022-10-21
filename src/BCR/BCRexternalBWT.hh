@@ -81,7 +81,7 @@ private:
 private:
     void pauseBetweenCyclesIfNeeded();
     void convertFileFromIntermediateToFinalFormat( const char *filenameIn, const char *filenameOut );
-    void ReadFilesForCycle( const char *prefix, const SequenceLength cycle, const SequenceLength readLength, const SequenceNumber nText, uchar *newSymb, const bool processQualities, uchar *newQual );
+    void ReadFilesForCycle( const char *prefix, const SequenceLength cycle, const SequenceLength readLength, SequenceNumber nText, uchar *newSymb, const bool processQualities, uchar *newQual );
     BwtReaderBase *instantiateBwtReaderForIntermediateCycle( const char *filenameIn, bool allowDefrag = false );
     BwtWriterBase *instantiateBwtWriterForIntermediateCycle( const char *filenameOut );
     BwtWriterBase *instantiateBwtWriterForLastCycle( const char *filenameOut );
