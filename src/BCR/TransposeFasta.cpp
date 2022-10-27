@@ -23,27 +23,32 @@
 #include <cassert>
 #include <cstdlib>
 #include <algorithm>
+#include <limits.h>
+#include <stdlib.h>
 
 //TODO spostare tutto in TransposeFasta.hh oppure parameters
 using namespace std;
 KSEQ_INIT(gzFile, gzread);
 long myTotalLen;
 long maxSeqLen;
+vector <int> keepOrder;
+long int nTotalSeq;
+unsigned minSeqLen;
 
+// struct used to establish permutation of sequences by length
 struct seqInfo{
 public:
     int len;   //sequence length
-    int nSeq; //sequence's position in input file (0 is first)
+    unsigned nSeq; //original sequence's position in input file (0 is first)
 };
-
+// short function to compare two seqInfo by length, from longest to shortest
 bool compareSequence (seqInfo s1, seqInfo s2){
-  //printf("Comparing %s with %s\n", s1.seq.c_str(), s2.seq.c_str());
    return s1.len > s2.len;
 }
 
 struct charElem{
     char ch;
-    int oldPosition;
+    unsigned int oldPosition;
 };
 
 bool compareCharElem(charElem ch1, charElem ch2){
@@ -53,34 +58,14 @@ bool compareCharElem(charElem ch1, charElem ch2){
 //RLO ordering
 struct group{
 public:
-    int base; //from which position the group starts
-    int bound; //limit position of the group
+    unsigned int base; //from which position the group starts
+    unsigned int bound; //limit position of the group
     vector<charElem> newCharacters;
    group(){
-        this->base = -1;
-        this->bound = -1;
+        this->base = 0;
+        this->bound = 0;
     }
 };
-
-
-int findGroup(int realPosition, vector<group*> &RLOgroups){
-//TODO use iterator and improve, if position > bound -> then no group
-    int groupID=-1;
-    int iter=0;
-
-    for(group *g : RLOgroups){
-        if ( (realPosition >= g->base) && (realPosition <= g->bound) ) {
-            groupID = iter;
-            break;
-        }
-        iter++;
-    }
-    return groupID;
-}
-
-vector <int> keepOrder;
-long int nTotalSeq;
-
 
 TransposeFasta::TransposeFasta()
     : pReader_( NULL )
@@ -103,6 +88,7 @@ int TransposeFasta::findInfoSeq(const string &input, const string &output, vecto
     long int lenTot = 0; //total characters read
     int sizeAlpha = 0; //different alphabet symbols found
     int maxLen = 0; //max sequence length
+    minSeqLen = UINT_MAX;
 
     //calculate file name
     std::string cutNameInput = (input.substr(input.find_last_of("/\\") + 1));
@@ -135,12 +121,14 @@ int TransposeFasta::findInfoSeq(const string &input, const string &output, vecto
         lenTot += actualLen;
         if (actualLen > maxLen)
             maxLen = actualLen;
+        if (actualLen < minSeqLen)
+            minSeqLen = actualLen;
         seqInfo addSeq;
         addSeq.nSeq = nSeq - 1;
         addSeq.len = actualLen;
         infoVector.push_back(addSeq);
     }
-#if (PREPROCESS_RLO == 1)
+/*#if (PREPROCESS_RLO == 1)
     //printf("\nRLO\n");
     //opening file to print info for RLO
     std::stringstream RLOsupportFilename;
@@ -154,13 +142,15 @@ int TransposeFasta::findInfoSeq(const string &input, const string &output, vecto
     fileSupportRLO_ = RLOsupportFilename.str().c_str();
     previousLen = -1;
     int sameLen = 0; int actualLen = -1;
-#endif
-    keepOrder.resize(nSeq);
-    sort(infoVector.begin(), infoVector.end(), compareSequence);
+#endif*/
+    if(ORDER_BY_LEN == 1) {
+        keepOrder.resize(nSeq);
+        sort(infoVector.begin(), infoVector.end(), compareSequence);
 
-    for(int i = 0; i < nSeq; i++){
-        keepOrder[infoVector[i].nSeq] = i;
-#if (PREPROCESS_RLO == 1)   //ad info about sequences
+        for(int i = 0; i < nSeq; i++) {
+            keepOrder[infoVector[i].nSeq] = i;
+    }
+/*#if (PREPROCESS_RLO == 1)   //ad info about sequences
         actualLen = infoVector[i].len;
         if(previousLen == actualLen)
             sameLen++;
@@ -170,24 +160,24 @@ int TransposeFasta::findInfoSeq(const string &input, const string &output, vecto
             sameLen = 1;
         }
         previousLen = actualLen;
-#endif
+#endif*/
     }
 
-#if (PREPROCESS_RLO == 1)
+/*#if (PREPROCESS_RLO == 1)
     if(previousLen != -1)
         fprintf(RLOsupport, "%d\n", sameLen);
     fflush(RLOsupport);
     fclose(RLOsupport);
-#endif
-
+#endif*/
     //sizeAlpha
-    for (dataTypedimAlpha i = 0; i < SIZE_ALPHA-1; ++i)
+    for (dataTypedimAlpha i = 0; i < SIZE_ALPHA - 1; ++i)
         if (freq[i] > 0) {
             sizeAlpha++;
         }
-    if (freq[SIZE_ALPHA-1] > 0) {
+    if (freq[SIZE_ALPHA - 1] > 0) {
         sizeAlpha++;
     }
+
 
     //Creating info file //TODO metti nella cartella random
     std::stringstream infoFileName;
@@ -207,21 +197,22 @@ int TransposeFasta::findInfoSeq(const string &input, const string &output, vecto
     fclose(outputInfo);
 
     nTotalSeq = nSeq;
-
+if( ORDER_BY_LEN == 1) {
     //Print permutation by len
     //Creating permutation file
     std::stringstream permFileName;
     permFileName << TEMP_DIR << "/" << file_without_extension.c_str() << "_len_permutation.txt";
-    FILE* outputPerm = fopen( permFileName.str().c_str(),"w" );
-    if(!outputPerm) {
+    FILE *outputPerm = fopen(permFileName.str().c_str(), "w");
+    if (!outputPerm) {
         printf("Error while opening file\n");
         exit(EXIT_FAILURE);
     }
-    for(long int i=0; i<nTotalSeq;i++) {
+    for (long int i = 0; i < nTotalSeq; i++) {
         fprintf(outputPerm, "%d\n", infoVector[i].nSeq);
         fflush(outputPerm);
     }
     fclose(outputPerm);
+}
 
     myTotalLen = lenTot;
     maxSeqLen = maxLen;
@@ -229,7 +220,7 @@ int TransposeFasta::findInfoSeq(const string &input, const string &output, vecto
     return maxLen;
 }
 
-void TransposeFasta::init( SeqReaderFile *pReader, const string &input, const bool processQualities)
+bool TransposeFasta::init( SeqReaderFile *pReader, const string &input, const bool processQualities)
 {
     differentLenDetected_ = false;
     //printf("\nFile name %s", input.c_str());
@@ -251,8 +242,8 @@ void TransposeFasta::init( SeqReaderFile *pReader, const string &input, const bo
     processQualities_ = processQualities;
 #endif
 
-    cerr << "Constructing TransposeFasta, found read length of "
-         << cycleNum_ << endl;
+    cerr << "Constructing TransposeFasta, found max read length of "
+         << cycleNum_ << " and min read length of " << minSeqLen << endl;
 
     if ( processQualities_ && pReader_->thisQual()[0] == '\0' )
     {
@@ -260,6 +251,8 @@ void TransposeFasta::init( SeqReaderFile *pReader, const string &input, const bo
         // , deactivate qualities processing
         processQualities_ = false;
     }
+
+    return differentLenDetected_;
 }
 
 TransposeFasta::~TransposeFasta()
@@ -267,175 +260,110 @@ TransposeFasta::~TransposeFasta()
 
 }
 
-/*
-bool TransposeFasta::convert( const string &input, const string &output, bool generatedFilesAreTemporary )
-{
-    vector<vector<uchar> > bufQual;
-    vector<FILE *> outputFilesQual;
-    if ( processQualities_ )
-    {
-        bufQual.resize( pReader_->length(), vector<uchar>( BUFFERSIZE ) );
-        outputFilesQual.resize( pReader_->length() );
+string TransposeFasta::sortInputFileByLen(const string &input, const string &output, bool generatedFilesAreTemporary) {
+
+    vector < FILE * > lenOutput;
+    bool isFirstTime[cycleNum_];
+    bool fileExists[cycleNum_];
+    for (unsigned i = 0; i < cycleNum_; ++i) {
+        isFirstTime[i] = true;
+        fileExists[i] = false;
+    }
+    lenOutput.resize(cycleNum_);
+
+    //Apro file delle sequenze per leggere
+    gzFile fp;
+    kseq_t *seq;
+    fp = gzopen(input.c_str(), "r");
+    seq = kseq_init(fp);
+    string strToWrite;
+    int len = 0;
+
+    //Leggo una sequenza alla volta e la scrivo nel file corrispondente
+    while ((len = kseq_read(seq)) >= 0) {
+      //  cerr<<len<<endl;
+        unsigned index = len - 1;
+        if (!isFirstTime[index]) {
+            strToWrite.append("\n");
+        }
+        strToWrite.append(">");
+        if( seq->name.l )
+            strToWrite.append(seq->name.s);
+        if( seq->comment.l ) {
+            strToWrite.append(" ");
+            strToWrite.append(seq->comment.s);
+        }
+        strToWrite.append("\n");
+        strToWrite.append(seq->seq.s);
+
+        if (processQualities_ && (seq->qual.l) ) {
+            strToWrite.append("\n");
+            strToWrite.append(seq->qual.s);
+        }
+
+      //  printf("%s\n", strToWrite.c_str());
+      //check if file exists, otherwise create
+      if(!fileExists[index]) {
+          Filename fn(output, index, "");
+          lenOutput[index] = fopen(fn, "w");
+          if (lenOutput[index] == NULL) {
+              cerr << "Error: couldn't open len output file " << fn << endl;
+              if (index > 0) {
+                  cerr
+                          << "  You may have reached the maximum number of opened files (see `ulimit -n`) or the maximum number of files allowed in one directory"
+                          << endl;
+                  exit(-1);
+              }
+          }
+          if (generatedFilesAreTemporary)
+              TemporaryFilesManager::get().addFilename(fn);
+          fileExists[index] = true;
+      }
+
+        FILE *whereToWrite = lenOutput[index];
+        size_t written_bytes = fwrite(strToWrite.c_str(), sizeof(char), strToWrite.size(), whereToWrite);
+        isFirstTime[index] = false;
+        strToWrite.clear();
     }
 
+    assert(lenOutput.size() > 1);
 
-    //TO DO
-    lengthRead = cycleNum_;
-    //The distribution of characters is useful
-    //for alpha[256] -->Corresponding between the alphabet, the piles and tableOcc
-    //and to know sizeAlpha
-    //We supposed that the symbols in the input file are the following
-    freq[int( terminatorChar )] = 1;
-    freq[int( 'A' )] = 1;
-    freq[int( 'C' )] = 1;
-    freq[int( 'G' )] = 1;
-    freq[int( 'N' )] = 1;
-    freq[int( 'T' )] = 1;
-    //GIOVANNA: ADDED THE SYMBOL Z IN THE ALPHABET, SO sizeAlpha = alphabetSize
-#ifdef USE_EXTRA_CHARACTER_Z
-    freq[int( 'Z' )] = 1;
-#endif
+    //Create name of new file
+    std::string cutNameInput = (input.substr(input.find_last_of("/\\") + 1));
 
-    // create output files
-    for ( SequenceLength i = 0; i < cycleNum_; i++ )
-    {
-        Filename fn( output, i, "" );
-        outputFiles_[i] = fopen( fn, "w" );
-        if ( outputFiles_[i] == NULL )
-        {
-            cerr << "Error: couldn't open output file " << fn << endl;
-            if ( i > 0 )
-            {
-                cerr << "  You may have reached the maximum number of opened files (see `ulimit -n`) or the maximum number of files allowed in one directory, as we create one file per cycle (and a second one if qualities are present)" << endl;
-                exit ( -1 );
-            }
+    //concat files
+    std::ostringstream command;
+    command << "cat ";
+    Filename cm(output, "");
+    // Order is from longest to shortest
+    for(unsigned i = maxSeqLen-1; i > 0; --i) {
+        if(fileExists[i]) {
+            command << cm << i << " ";
+            //print a new line so I can concat with new line
+            fprintf(lenOutput[i], "\n");
+            fflush(lenOutput[i]);
         }
-        if ( generatedFilesAreTemporary )
-            TemporaryFilesManager::get().addFilename( fn );
-        if ( processQualities_ )
-        {
-            Filename fnQual( output + "qual.", i, "" );
-            outputFilesQual[i] = fopen( fnQual, "w" );
-            if ( outputFilesQual[i] == NULL )
-            {
-                cerr << "Error: couldn't open output file " << fnQual << endl;
-                if ( i > 0 )
-                {
-                    cerr << "  You may have reached the maximum number of opened files (see `ulimit -n`) or the maximum number of files allowed in one directory, as we create one file per cycle (and a second one if qualities are present)" << endl;
-                    exit ( -1 );
-                }
-            }
-            if ( generatedFilesAreTemporary )
-                TemporaryFilesManager::get().addFilename( fnQual );
-        }
+    } //case 0 outside because is unsigned
+    if(fileExists[0]) {
+        command << cm << 0 << " ";
+        fflush(lenOutput[0]);
     }
+    command << "> ";
+    command << TEMP_DIR << "/" << cutNameInput.c_str();
+   // cerr<<command.str().c_str()<<endl;
+    int res = system(command.str().c_str());
 
-
-    // looping through the input file, add the characters to the buffer, print buffer when it's full
-    //    unsigned int num_read = 0;
-    unsigned int num_write = 0;
-    unsigned int charsBuffered = 0;
-
-    //******************************buf[cycleNum_+1];  ********* is cycleNum_ right?
-    lengthTexts = 0;
-    nSeq = 0;
-    //    num_read = fread(buf,sizeof(uchar),cycleNum_,ifile);
-
-    //    fgets ( buf,1024, ifile ); %%%%%
-    //    while( !feof(ifile) ) %%%%%
-    while ( pReader_->allRead() == false )
-    {
-        //cerr << "current line : " << buf << endl;
-
-        if ( charsBuffered == BUFFERSIZE )
-        {
-            // write buffers to the files, clear buffers
-            #pragma omp parallel for num_threads(4)
-            for ( SequenceLength i = 0; i < cycleNum_; i++ )
-            {
-                //cerr << "writing to " << i << " : " << buf_[i] << endl;
-                size_t num_write_bases = fwrite ( buf_[i].data(), sizeof( char ), charsBuffered, outputFiles_[i] );
-                checkIfEqual( num_write_bases, charsBuffered ); // we should always read/write the same number of characters
-                if ( processQualities_ )
-                {
-                    size_t num_write_qual = fwrite ( bufQual[i].data(), sizeof( char ), charsBuffered, outputFilesQual[i] );
-                    checkIfEqual( num_write_bases, num_write_qual );
-                }
-            }
-            lengthTexts += ( num_write * cycleNum_ );
-
-
-            charsBuffered = 0;
-        }
-
-        for ( SequenceLength i = 0; i < cycleNum_; i++ )
-        {
-            buf_[i][charsBuffered] = pReader_->thisSeq()[i];
-
-            if ( processQualities_ )
-            {
-                bufQual[i][charsBuffered] = pReader_->thisQual()[i];
-            }
-        }
-        // increase the counter of chars buffered
-        charsBuffered++;
-        nSeq++;
-
-
-#ifdef XXX
-        // process the input
-        if ( buf[0] != '>' )
-        {
-            // add the characters
-            for ( SequenceLength i = 0; i < cycleNum_; i++ )
-            {
-                buf_[i][charsBuffered] = buf[i];
-            }
-
-            // increase the counter of chars buffered
-            charsBuffered++;
-            nSeq++;
-        }
-#endif                //else
-
-
-        //num_read = fread(buf,sizeof(uchar),cycleNum_,ifile);
-        //        fgets ( buf, 1024, ifile );
-        pReader_->readNext();
-    }
-
-    // write the rest
-    for ( SequenceLength i = 0; i < cycleNum_; i++ )
-    {
-        num_write = fwrite ( buf_[i].data(), sizeof( uchar ), charsBuffered, outputFiles_[i] );
-        lengthTexts += num_write;
-        if ( processQualities_ )
-        {
-            size_t num_write_qual = fwrite ( bufQual[i].data(), sizeof( uchar ), charsBuffered, outputFilesQual[i] );
-            checkIfEqual( num_write, num_write_qual );
-        }
-    }
-    checkIfEqual( num_write, charsBuffered );
-
-
-
-    // closing all the output file streams
-    for ( SequenceLength i = 0; i < cycleNum_; i++ )
-    {
-        fclose( outputFiles_[i] );
-        if ( processQualities_ )
-        {
-            fclose( outputFilesQual[i] );
+    //remove old files
+    for(unsigned i = minSeqLen-1; i < maxSeqLen; ++i){
+        if(fileExists[i]) {
+            fclose(lenOutput[i]);
+            Filename rm(output, i, "");
+            remove(rm);
         }
     }
 
-    std::cout << "Number of sequences reading/writing: " << nSeq << "\n";
-    std::cout << "Number of characters reading/writing: " << lengthTexts << "\n";
-
-    //    delete pReader;
-    return true;
+    return cutNameInput.c_str();
 }
-*/
 
 /* Creates cyc files possibly inserting DUMMY_CHAR to fill length difference between strings */
 bool TransposeFasta::convert( const string &input, const string &output, bool generatedFilesAreTemporary )
@@ -555,7 +483,7 @@ bool TransposeFasta::convert( const string &input, const string &output, bool ge
             charsBuffered = 0;
         }
 
-#if (PREPROCESS_RLO == 1)
+#if (ALIGN == 0)
         //Align right side to compute preprocessing RLO
             int index = cycleNum_-1;
             for ( int i = len-1; i >= 0; --i ){
@@ -622,454 +550,18 @@ bool TransposeFasta::convert( const string &input, const string &output, bool ge
     std::cout << "Number of sequences reading/writing: " << nSeq << "\n";
     std::cout << "Number of characters reading/writing: " << lengthTexts << "\n";
 
-
-    return true;
-}
-
-/* Creates cyc files with strings ordered by len and filling difference in size with DUMMY_CHAR, prints permutation of strings in file */
-bool TransposeFasta::convertByLen(const string &input, const string &output, bool generatedFilesAreTemporary ){
-
-    if(differentLenDetected_ == false) {
-        printf("Asked to order sequences by length but all sequences are the same size\n");
-        return convert(input, output, generatedFilesAreTemporary);
-    }
-
-    vector<vector<uchar> > bufQual;
-    vector<FILE *> outputFilesQual;
-
-    if ( processQualities_ )
-    {
-        bufQual.resize( cycleNum_, vector<uchar>( BUFFERSIZE ) );
-        outputFilesQual.resize( cycleNum_ );
-    }
-
-    //TO DO
-    lengthRead = cycleNum_;
-    //The distribution of characters is useful
-    //for alpha[256] -->Corresponding between the alphabet, the piles and tableOcc
-    //and to know sizeAlpha
-    //We supposed that the symbols in the input file are the following
-    freq[int( terminatorChar )] = 1;
-    freq[int( 'A' )] = 1;
-    freq[int( 'C' )] = 1;
-    freq[int( 'G' )] = 1;
-    freq[int( 'N' )] = 1;
-    freq[int( 'T' )] = 1;
-    //GIOVANNA: ADDED THE SYMBOL Z IN THE ALPHABET, SO sizeAlpha = alphabetSize
-#ifdef USE_EXTRA_CHARACTER_Z
-    freq[int( 'Z' )] = 1;
-#endif
-
-    // create output files
-    for ( SequenceLength i = 0; i < cycleNum_; i++ )
-    {
-        Filename fn( output, i, "" );
-        outputFiles_[i] = fopen( fn, "w" );
-        if ( outputFiles_[i] == NULL )
-        {
-            cerr << "Error: couldn't open output file " << fn << endl;
-            if ( i > 0 )
-            {
-                cerr << "  You may have reached the maximum number of opened files (see `ulimit -n`) or the maximum number of files allowed in one directory, as we create one file per cycle (and a second one if qualities are present)" << endl;
-                exit ( -1 );
-            }
-        }
-        if ( generatedFilesAreTemporary )
-            TemporaryFilesManager::get().addFilename( fn );
-        if ( processQualities_ )
-        {
-            Filename fnQual( output + "qual.", i, "" );
-            outputFilesQual[i] = fopen( fnQual, "w" );
-            if ( outputFilesQual[i] == NULL )
-            {
-                cerr << "Error: couldn't open output file " << fnQual << endl;
-                if ( i > 0 )
-                {
-                    cerr << "  You may have reached the maximum number of opened files (see `ulimit -n`) or the maximum number of files allowed in one directory, as we create one file per cycle (and a second one if qualities are present)" << endl;
-                    exit ( -1 );
-                }
-            }
-            if ( generatedFilesAreTemporary )
-                TemporaryFilesManager::get().addFilename( fnQual );
-        }
-    }
-
-    //calculating how many times must read input file
-    double timesReadInput = (double)nTotalSeq/(double)BUFFERSIZE;
-    if(timesReadInput - (int)timesReadInput > 0) timesReadInput = (int)timesReadInput + 1;
-    //printf("\n Sequences are %ld and Times to read found is %f\n",nTotalSeq, (double)timesReadInput);
-    int counterTimes = 0;
-    nSeq = 0;
-    int base = 0;
-    int bound = BUFFERSIZE - 1;
-    lengthTexts = 0;
-    unsigned int num_write=0;
-    unsigned int charsBuffered = 0;
-    int maxPosition = 0;
-    int insertedSequences = 0;
-
-    // looping through the input file, add the characters to the buffer, print buffer when it's full
-    while( (counterTimes < timesReadInput) && (insertedSequences < nTotalSeq) ) {
-
-        num_write = 0;
-        nSeq=0;
-        gzFile fp;
-        kseq_t *seq;
-        int len = 0;
-        fp = gzopen(input.c_str(), "r");
-        seq = kseq_init(fp);
-        maxPosition = 0;
-
-        //TODO uso buffer o no? Se ne scrivo una alla volta?
-        while ((len = kseq_read(seq)) >= 0 && (insertedSequences < nTotalSeq)) {
-
-            int position = keepOrder[nSeq];
-            //printf("\n File to open is %s Position found is %d\n", input.c_str(), position);
-            if (charsBuffered == BUFFERSIZE) {
-                // write buffers to the files, clear buffers
-#pragma omp parallel for num_threads(4)
-                for (int i = 0; i < cycleNum_; i++) {
-                    size_t num_write_bases = fwrite(buf_[i].data(), sizeof(char), charsBuffered, outputFiles_[i]);
-                    checkIfEqual(num_write_bases,
-                                 charsBuffered); // we should always read/write the same number of characters
-                    if (processQualities_) {
-                        size_t num_write_qual = fwrite(bufQual[i].data(), sizeof(char), charsBuffered,
-                                                       outputFilesQual[i]);
-                        checkIfEqual(num_write_bases, num_write_qual);
-                    }
-                }
-                //lengthTexts += (num_write * cycleNum_);
-                charsBuffered = 0;
-                maxPosition = 0;
-                base += BUFFERSIZE;
-                bound += BUFFERSIZE;
-
-                /* debug buffer print
-                printf("\n--------------------------\n");
-                for(int i = 0; i < cycleNum_; i++) {
-                  for (int j = 0; j < BUFFERSIZE; j++)
-                      printf("%c ", buf_[i][j]);
-                  printf("\n");
-                }
-                printf("\n--------------------------\n");
-                */
-
-                //reset buffer
-                for(int i = 0; i < cycleNum_; i++)
-                    for(int j = 0; j < BUFFERSIZE; j++)
-                        buf_[i][j] = DUMMY_CHAR;
-            }
-
-            //check if sequence has to be ignored for now
-            if ((position >= base) && (position <= bound)) {
-                int bufferPosition = position % BUFFERSIZE;
-                if(bufferPosition > maxPosition)
-                    maxPosition = bufferPosition;
-
-            #if (PREPROCESS_RLO == 1)
-                //Align right side to compute preprocessing RLO
-                int index = cycleNum_-1;
-                for ( int i = len-1; i >= 0; --i ){
-                    buf_[index][bufferPosition] = seq->seq.s[i];
-
-                    if (processQualities_ ){
-                        bufQual[index][bufferPosition] = seq->qual.s[i];
-                    }
-                    index--;
-                }
-                if(index >= 0)
-                    buf_[index][bufferPosition] = TERMINATE_CHAR;
-            #else
-                //else align left side
-                SequenceLength i;
-                for ( i = 0; i < len; ++i ) {
-                    buf_[i][bufferPosition] = seq->seq.s[i];
-
-                    if (processQualities_) {
-                        bufQual[i][bufferPosition] = seq->qual.s[i];
-                    }
-                }
-                 if(i <= cycleNum_-1)
-                    buf_[i][bufferPosition] = TERMINATE_CHAR;
-#endif
-
-                //int index = len - 1;
-                /*for (int i = 0; i < len; i++) {
-                    buf_[i][bufferPosition] = seq->seq.s[i];
-
-                    if (processQualities_) {
-                        bufQual[i][bufferPosition] = seq->qual.s[i];
-                    }
-                    //index--;
-                }*/
-                // increase the counter of chars buffered only if the sequence was inserted
-                charsBuffered++;
-                // increase the number of inserted sequences
-                insertedSequences++;
-                lengthTexts+=len;
-            }
-            nSeq++;
-        }
-        counterTimes++;
-    }
-
-    // write the rest
-    for (SequenceLength i = 0; i < cycleNum_; i++) {
-        num_write = fwrite(buf_[i].data(), sizeof(uchar), maxPosition+1, outputFiles_[i]);
-        //lengthTexts += num_write;
-        if (processQualities_) {
-            size_t num_write_qual = fwrite(bufQual[i].data(), sizeof(uchar), maxPosition+1, outputFilesQual[i]);
-            checkIfEqual(num_write, num_write_qual);
-        }
-    }
-    checkIfEqual(num_write, maxPosition+1);
-
-    // closing all the output file streams
-    for ( SequenceLength i = 0; i < cycleNum_; i++ )
-    {
-        fclose( outputFiles_[i] );
-        if ( processQualities_ )
-        {
-            fclose( outputFilesQual[i] );
-        }
-    }
-
-    std::cout << "Number of sequences reading/writing: " << nSeq << "\n";
-    std::cout << "Number of characters reading/writing: " << lengthTexts << "\n";
-
     return true;
 }
 
 /* Orders sequences by reverse lexicographic order, writes permutation of strings in file and reorders cycfiles */
 bool TransposeFasta::computeRLO(const string &input, const string &output, const string &RLOsupport) {
 
-   // string testFile = "/home/linuxlite/Scrivania/Start_BEETL/BEETL_mybuild/BEETL-Temp/samelenRLOsupport.txt";
-/*
-#if (ORDER_BY_LEN == 1)
-
-    if(RLOsupport == ""){
-        printf("Can't compute RLO, file RLOsupport is missing\n");
-        exit(EXIT_FAILURE);
-    }
-
-    //prepare file to support RLO
-    string filename(testFile);
-    int number;
-    ifstream input_file(filename);
-    if (!input_file.is_open()) {
-        cerr << "Could not open the file - '"
-             << filename << "'" << endl;
-        exit(EXIT_FAILURE);
-    }
-
-    //global_start = -1;
-   //Per ogni cyc file da n a 0
-        //start = 0
-        //Leggo numero sequenze della stessa lunghezza
-        //Inizio a leggere cycfile da start o da global-start se != -1 e finisco a start+numero sequenze stessa lunghezza
-        //Se '#' metto global_start = start+numero;
-        //Calcolo RLO come prima e salvo caratteri ordinati in un buffer
-        //Scrivo buffer sul cycfile corrispondente da seek(start) a start+numero
-        //start prende = end
-
-    int global_start = -1;
-    int subgroup = -1;
-    char bufRLO_[BUFFERSIZE];
-
-    for (int i = cycleNum_-1; i >= 0; --i) {
-        //RLO parameteres
-        vector<group*> all_groups_even;
-        vector<group*> all_groups_odd;
-        int keepOrderRLO[nTotalSeq]; //keeps the association between [position_of_sequence_in_file] = new_assigned_position
-
-        //apro cycfile corrispondente
-        Filename fn(output, i, "");
-        outputFiles_[i] = fopen(fn, "w+");
-        //imposto l'inizio del cycfile da dove leggere
-        int start = (global_start != -1 ? global_start : 0);
-
-       while(input_file >> subgroup){ //Per ogni sottogruppo
-           //RLO iteration parameters
-           vector < group * > *next_groups;
-           vector < group * > *current_groups;
-
-           bool firstTime = true;
-
-           //TODO first iteration can be improved
-           group *firstGroup = new group;
-           firstGroup->base=0; firstGroup->bound=nTotalSeq-1;
-           all_groups_even.push_back(firstGroup);
-           int permutation[nTotalSeq];
-
-        int begin = start; int end = start+subgroup;
-        fseek(outputFiles_[i],start, SEEK_SET);
-
-
-        for(int i = begin; i < end; ++i) {
-
-            if (i % 2 == 0) {
-                next_groups = &all_groups_odd;
-                current_groups = &all_groups_even;
-            } else {
-                next_groups = &all_groups_even;
-                current_groups = &all_groups_odd;
-            }
-
-            char ch = fgetc(outputFiles_[i]);
-            if (ch == DUMMY_CHAR) {
-                global_start = end;
-                start = end;
-                break;
-            }
-
-            int position = 0;
-            int realPosition
-                    (firstTime ? realPosition = position : realPosition = keepOrderRLO[position]);
-            int IDGroup
-                    (firstTime ? IDGroup = 0 : IDGroup = findGroup(realPosition,
-                                                                   *current_groups)); //TODO only one line vector
-            if (IDGroup != -1) { //if -1 is already ordered
-                group *myGroup = (*current_groups)[IDGroup];
-                charElem newChar;
-                newChar.ch = ch;
-                newChar.oldPosition = position;
-                myGroup->newCharacters.push_back(newChar);
-            }
-            //update position
-            position++;
-        }
-
-        //All characters have been read and put in the right group
-        //now sorting inside groups
-        int bufferPosition = 0;
-        int realPosition = 0;
-
-        for(int j=0; j<current_groups->size(); j++){
-
-            group *g = (*current_groups)[j];
-            while(bufferPosition != g->base){
-                realPosition = permutation[bufferPosition];
-                fseek(outputFiles_[i], realPosition, SEEK_SET);
-                char ch = fgetc(outputFiles_[i]);
-                bufRLO_[bufferPosition] = ch;
-                bufferPosition++;
-            }
-                sort(g->newCharacters.begin(), g->newCharacters.end(), compareCharElem);
-
-                char prev = DUMMY_CHAR;
-                //update position vector
-                char next; int howMany=0; int base = g->base;
-                for(int h=0; h<g->newCharacters.size(); h++){
-
-                    //update position vector
-                    keepOrderRLO[g->newCharacters[h].oldPosition] = g->base+h;
-                    //update permutation
-                    permutation[g->base+h] = g->newCharacters[h].oldPosition;
-
-                    next = g->newCharacters[h].ch;
-                    bufRLO_[bufferPosition] = next;
-                    bufferPosition++;
-                    if((prev != next)){ //character has changed
-                        //create group only if there is more than 1 element
-                        if( (howMany > 1) && (prev != DUMMY_CHAR)) {
-                            group *newGroup = new group;
-                            newGroup->base = base;
-                            newGroup->bound = base + howMany - 1;
-                            next_groups->push_back(newGroup);
-                        }
-                        base = g->base+h;
-                        howMany = 0;
-                    }
-                    howMany++;
-                    prev = next;
-                }
-                //create remaining
-                if( (howMany > 1) && (prev != DUMMY_CHAR)){ //create group only if there is more than 1 element
-                    group *newGroup = new group;
-                    newGroup->base = base;
-                    newGroup->bound = g->bound;
-                    next_groups->push_back(newGroup);
-                }
-            }
-
-            //write last char
-            while(bufferPosition < nTotalSeq){
-                realPosition = permutation[bufferPosition];
-                fseek(outputFiles_[i], realPosition, SEEK_SET);
-                char ch = fgetc(outputFiles_[i]);
-                bufRLO_[bufferPosition] = ch;
-                bufferPosition++;
-            }
-
-            //scrivo RLO sul cyc file vecchio
-            fseek(outputFiles_[i],start,SEEK_SET);
-            fwrite(bufRLO_, sizeof(char), subgroup, outputFiles_[i]);
-
-            //clean useless groups
-            for(int c=0; c<current_groups->size(); c++){
-                group *p = (*current_groups)[c];
-                p->newCharacters.clear();
-                free(p);
-            } current_groups->clear();
-            //no more first time
-            firstTime = false;
-        }
-
-           //clean memory
-           for(int c=0; c<all_groups_odd.size(); c++){
-               group *p = all_groups_odd[c];
-               p->newCharacters.clear();
-               free(p);
-           }
-           for(int c=0; c<all_groups_even.size(); c++){
-               group *p = all_groups_even[c];
-               p->newCharacters.clear();
-               free(p);
-           }
-
-        //rewind support file
-        input_file.clear();
-        input_file.seekg(0);
-    }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-#else*/
-/*
-#if (ACCEPT_DIFFERENT_LEN == 1)
-    if(differentLenDetected_)
-        convertAcceptDiffLen(input, output, 1, false);
-    else
-        convert(output, generatedFilesAreTemporary);
-#else
-    convert(output, generatedFilesAreTemporary);
-#endif
-*/
     vector<group*> all_groups_even;
     vector<group*> all_groups_odd;
-    char cycFileContent[nTotalSeq];
-    int keepOrderRLO[nTotalSeq]; //keeps the association between [position_of_sequence_in_file] = new_assigned_position
-    int permutation[nTotalSeq]; //keeps the association between [position i] = sequence assigned at position i
+
+    unsigned int* keepOrderRLO = new unsigned int[nTotalSeq]; //keeps the association between [position_of_sequence_in_file] = new_assigned_position
+    char* cycFileContent = new char[nTotalSeq];
+    unsigned int* permutation = new unsigned int[nTotalSeq]; //keeps the association between [position i in file] = sequence assigned at position i
     bool firstTime = true;
 
     //TODO first iteration can be improved
@@ -1081,7 +573,8 @@ bool TransposeFasta::computeRLO(const string &input, const string &output, const
         all_groups_odd.push_back(firstGroup);
 
     //TODO break if groupsize is 1?
-    for (int i = cycleNum_-1; i >= 0; --i) {
+    for (long long i = cycleNum_-1; i >= 0; --i) {
+
         vector<group*> *next_groups;
         vector<group*> *current_groups;
         if(i%2 == 0){
@@ -1091,17 +584,46 @@ bool TransposeFasta::computeRLO(const string &input, const string &output, const
             next_groups = &all_groups_even;
             current_groups = &all_groups_odd;
         }
-
+  //      printf("size groups init:%d e %d, iteration %d, line %d\n", current_groups->size(), next_groups->size(), i, __LINE__);
         Filename fn(output, i, "");
         outputFiles_[i] = fopen(fn, "r");
-
+        fread(cycFileContent, sizeof(uchar), nTotalSeq, outputFiles_[i]);
         char ch;
-        int position = 0;
+        unsigned int position = 0;
         //TODO seek all'inizio
-        while ((ch = fgetc(outputFiles_[i])) != EOF) {
-           int realPosition = (firstTime ? position : keepOrderRLO[position] );
+       // printf("Loop nel while?\n");
 
+        if(firstTime){
+            //Se è il primo giro scorro tutti i caratteri e li aggiungo ad un unico gruppo
+            for(unsigned int h = 0; h < nTotalSeq; h++){
+                charElem newChar; newChar.ch = cycFileContent[h]; newChar.oldPosition = h;
+                firstGroup->newCharacters.push_back(newChar);
+            }
+
+        }else{
+            //Altrimenti scorro i gruppi e inserisco i nuovi caratteri di quell'iterazione
+            //Per ogni gruppo
+            for( group *g : *current_groups){
+                //Per ogni intervallo del gruppo
+                for(unsigned int b = g->base; b<= g->bound; b++) {
+                    charElem newChar;
+                    newChar.ch = cycFileContent[permutation[b]];
+                    newChar.oldPosition = permutation[b];//check here
+                    g->newCharacters.push_back(newChar);
+                }
+
+            }
+        }
+        //Prima leggere file
+
+
+
+   /*     while ((ch = fgetc(outputFiles_[i])) != EOF) {
+
+           long realPosition = (firstTime ? position : keepOrderRLO[position] );
            int IDGroup = (firstTime ? 0 : findGroup(realPosition, *current_groups) ); //TODO only one line vector
+      //  if(i < 44)
+        //  printf("Posizione char %d e gruppo %d\n", position, IDGroup);
            if(IDGroup != -1) { //if -1 is already ordered
                 group *myGroup = (*current_groups)[IDGroup];
                 charElem newChar;
@@ -1113,7 +635,9 @@ bool TransposeFasta::computeRLO(const string &input, const string &output, const
            }
             //update position
             position++;
-        }
+        }*/
+
+
         //All characters have been read and put in the right group
         //now sorting inside groups
         Filename tmp(output, "_tmp");
@@ -1122,16 +646,20 @@ bool TransposeFasta::computeRLO(const string &input, const string &output, const
             printf("Error: can't open file %s%s\n", output.c_str(), "_tmp");
             exit(EXIT_FAILURE);
         }
-        int filePosition = 0;
-        int realPosition = 0;
-        for(int j=0; j<current_groups->size(); j++){
+        unsigned int filePosition = 0;
+        unsigned int realPosition = 0;
+      //  printf("loop riga 736?\n");
+        for(unsigned int j=0; j<current_groups->size(); j++){
+
+            //printf("size %d\n", current_groups->size());
 
             group *g = (*current_groups)[j];
 
             //Se c'è un gap tra due gruppi allora vanno inseriti simboli già ordinati
             //da prendere tramite fseek dal cyc file.
+         //   printf("Loop nel while 744?\n");
             while(filePosition != g->base){
-                char chToWrite = cycFileContent[filePosition];
+                char chToWrite = cycFileContent[permutation[filePosition]];
                 fprintf(fp, "%c", chToWrite);
                 filePosition++;
 
@@ -1149,14 +677,16 @@ bool TransposeFasta::computeRLO(const string &input, const string &output, const
                 */
 
             }
+          //  printf("no\n");
 
             sort(g->newCharacters.begin(), g->newCharacters.end(), compareCharElem);
            /* for(int d=0; d<g->newCharacters.size(); d++){
                 printf("\nGroup limit from %d to %d. character %c position %d\n",g->base, g->bound, g->newCharacters[d].ch, g->newCharacters[d].oldPosition);
             }*/
             char prev = DUMMY_CHAR;
-            char next; int howMany=0; int base = g->base;
-            for(int h=0; h<g->newCharacters.size(); h++){
+            char next; unsigned int howMany=0; unsigned int base = g->base;
+       //     printf("Loop nel for dei caratteri 773?\n");
+            for(unsigned int h=0; h<g->newCharacters.size(); h++){
 
                 //update position vector
                 keepOrderRLO[g->newCharacters[h].oldPosition] = g->base+h;
@@ -1180,6 +710,7 @@ bool TransposeFasta::computeRLO(const string &input, const string &output, const
                 howMany++;
                 prev = next;
             }
+         //   printf("no 773\n");
             //create remaining
             if( (howMany > 1) && (prev != DUMMY_CHAR)){ //create group only if there is more than 1 element
                 group *newGroup = new group;
@@ -1188,10 +719,12 @@ bool TransposeFasta::computeRLO(const string &input, const string &output, const
                 next_groups->push_back(newGroup);
             }
         }
+    //    printf("no 736\n");
         //write last char
         //stampo gli ultimi caratteri rimasti fuori dai gruppi
+     //   printf("Loop nel while 806?\n");
         while(filePosition < nTotalSeq){
-            char chToWrite = cycFileContent[filePosition];
+            char chToWrite = cycFileContent[permutation[filePosition]];
             fprintf(fp, "%c", chToWrite );
             filePosition++;
             /*realPosition = permutation[filePosition];
@@ -1200,6 +733,7 @@ bool TransposeFasta::computeRLO(const string &input, const string &output, const
             fprintf(fp, "%c", ch);
             filePosition++;*/
         }
+      //  printf("no 806\n");
         //remove old cyc file
         remove(fn);
         //rename temporary file to new cyc file
@@ -1207,22 +741,26 @@ bool TransposeFasta::computeRLO(const string &input, const string &output, const
         fclose(fp);
 
         //clean useless groups
-        for(int c=0; c<current_groups->size(); c++){
+      //  printf("Loop nel for pulizia?\n");
+      //  printf("size groups:%d e %d, iteration %d, line %d\n", current_groups->size(), next_groups->size(), i, __LINE__);
+        for(unsigned int c=0; c<current_groups->size(); c++){
             group *p = (*current_groups)[c];
             p->newCharacters.clear();
             free(p);
         } current_groups->clear();
+     //   printf("no\n");
         //no more first time
         firstTime = false;
+     //   printf("size groups:%d e %d, iteration %d, line %d\n", current_groups->size(), next_groups->size(), i, __LINE__);
     }
 
     //clean memory
-    for(int c=0; c<all_groups_odd.size(); c++){
+    for(unsigned int c=0; c<all_groups_odd.size(); c++){
         group *p = all_groups_odd[c];
         p->newCharacters.clear();
         free(p);
     }
-    for(int c=0; c<all_groups_even.size(); c++){
+    for(unsigned int c=0; c<all_groups_even.size(); c++){
         group *p = all_groups_even[c];
         p->newCharacters.clear();
         free(p);
@@ -1246,14 +784,17 @@ bool TransposeFasta::computeRLO(const string &input, const string &output, const
         exit(EXIT_FAILURE);
     }
 
-    for(long int i=0; i<nTotalSeq;i++) {
+    for(unsigned int i=0; i<nTotalSeq;i++) {
         fprintf(outputInfo, "%d\n", permutation[i]);
         fflush(outputInfo);
     }
+    delete keepOrderRLO;
+    delete permutation;
     fclose(outputInfo);
     return true;
 }
 
+/* ================== Not modified =======================*/
 bool TransposeFasta::inputCycFile( const string &cycPrefix )
 {
     //TO DO
@@ -1327,7 +868,6 @@ bool TransposeFasta::inputCycFile( const string &cycPrefix )
 
     return 1;
 }
-
 bool TransposeFasta::convertFromCycFileToFastaOrFastq( const string &fileInputPrefix, const string &fileOutput, bool generatedFilesAreTemporary, SequenceExtractor *sequenceExtractor )
 {
     bool outputIsFastq = hasSuffix( fileOutput, ".fastq" );
@@ -1443,3 +983,380 @@ bool TransposeFasta::convertFromCycFileToFastaOrFastq( const string &fileInputPr
 
     return 1;
 }
+
+
+/* ================== Dismissed methods =================*/
+//Sort by len
+/*void TransposeFasta::sortBylen( const string &input, const string &output){ //TODO add qualities
+
+    unsigned int contaDollari = 0;
+    unsigned int contaCancelletti = 0;
+    unsigned int* daSeqAPosizione = new unsigned int [nTotalSeq];
+    vector <unsigned int> nextIterazione;
+    vector <unsigned int> thisIterazione;
+    char* symbToPrint = new char[nTotalSeq];
+    char ch; //char to read
+    unsigned int i = 0;
+    unsigned int contaLettere = 0;
+    unsigned int posizione = 0;
+    //First iteration
+
+    //Open cyc file 0
+    Filename fn(output, 0, "");
+    outputFiles_[i] = fopen(fn, "r");
+    if(outputFiles_[i] == NULL){
+        cerr<<"Error: can't open file cyc.0"<<endl;
+        exit(EXIT_FAILURE);
+    }
+
+    //Open tmp cyc file
+    Filename tmp(output, "_tmp");
+    FILE* fp = fopen( tmp, "w" );
+    if(fp == NULL){
+        cerr<<"Error: can't open file"<<output<<"_tmp";
+        exit(EXIT_FAILURE);
+    }
+
+    //I read one char at time
+    unsigned int sequenceIndex = 0;
+    while ((ch = fgetc(outputFiles_[i])) != EOF){
+
+        if(ch == DUMMY_CHAR)
+            contaCancelletti++;
+
+        if(ch == TERMINATE_CHAR) {
+            contaDollari++;
+            nextIterazione.push_back(sequenceIndex);
+        }
+
+        //I establish ordering
+        if( (ch != DUMMY_CHAR) && (ch != TERMINATE_CHAR) ) {
+            //it's a letter A,C,G,N,T I have to store its pos
+            thisIterazione.push_back(sequenceIndex);
+            //scrivo char nel file
+            fprintf(fp, "%c", ch);
+        }
+
+        sequenceIndex++;
+    }
+
+    //write all $
+    for(unsigned int dollar = 0; dollar < contaDollari; ++dollar){
+        unsigned int printed = fprintf(fp, "$");
+    }
+
+    //write all #
+    for(unsigned int canc = 0; canc < contaCancelletti; ++canc){
+        unsigned int printed = fprintf(fp, "#");
+    }
+
+    remove(fn);
+    //rename temporary file to new cyc file
+    rename(tmp, fn);
+    fclose(fp);
+
+    //merge thisIterazione + nextIterazione, clean nextIterazione
+    thisIterazione.insert(thisIterazione.end(), nextIterazione.begin(), nextIterazione.end()),
+    nextIterazione.clear();
+
+
+    //From second to cycleNum-1 iteration
+
+    for (i = 1; i < cycleNum_; ++i) {
+        contaLettere = 0;
+        contaDollari = 0;
+        contaCancelletti = 0;
+
+        //Open cyc file
+        Filename fn(output, i, "");
+        outputFiles_[i] = fopen(fn, "r");
+        if(outputFiles_[i] == NULL){
+            cerr<<"Error: can't open file"<<output<<endl;
+            exit(EXIT_FAILURE);
+        }
+
+        //Open tmp cyc file
+        Filename tmp(output, "_tmp");
+        FILE* fp = fopen( tmp, "w" );
+        if(fp == NULL){
+            cerr<<"Error: can't open file"<<output<<"_tmp";
+            exit(EXIT_FAILURE);
+        }
+
+        //I read one char at time
+        unsigned int sequenceIndex = 0;
+        while ((ch = fgetc(outputFiles_[i])) != EOF){
+
+            if(ch == DUMMY_CHAR)
+                contaCancelletti++;
+
+            if(ch == TERMINATE_CHAR) {
+                contaDollari++;
+                nextIterazione.push_back(sequenceIndex);
+            }
+
+            //I establish ordering
+            if( (ch != DUMMY_CHAR) && (ch != TERMINATE_CHAR) ) {
+                symbToPrint[ thisIterazione[contaLettere] ] = ch;
+                printf("Added %c\n",symbToPrint[thisIterazione[contaLettere]]);
+                contaLettere++;
+            }
+            sequenceIndex++;
+        }
+
+        //print all symbToPrint
+        size_t num_write_len = fwrite(symbToPrint, sizeof(char), thisIterazione.size(), fp);
+
+        //write all $
+        for(unsigned int dollar = 0; dollar < contaDollari; ++dollar){
+            unsigned int printed = fprintf(fp, "$");
+        }
+
+        //write all #
+        for(unsigned int canc = 0; canc < contaCancelletti; ++canc){
+            unsigned int printed = fprintf(fp, "#");
+        }
+
+        remove(fn);
+        //rename temporary file to new cyc file
+        rename(tmp, fn);
+        fclose(fp);
+
+        //merge thisIterazione + nextIterazione, clean nextIterazione
+        thisIterazione.insert(thisIterazione.end(), nextIterazione.begin(), nextIterazione.end()),
+        nextIterazione.clear();
+
+    }
+
+    delete[] symbToPrint;
+
+}
+*/
+
+//Sort by len 2
+/* Creates cyc files with strings ordered by len and filling difference in size with DUMMY_CHAR, prints permutation of strings in file
+bool TransposeFasta::convertByLen(const string &input, const string &output, bool generatedFilesAreTemporary ){
+
+    if(differentLenDetected_ == false) {
+        Logger::out() << "Asked to order sequences by length but all sequences are the same size. Sorting by length canceled."<<endl;
+        return convert(input, output, generatedFilesAreTemporary);
+    }
+
+    vector<vector<uchar> > bufQual;
+    vector<FILE *> outputFilesQual;
+
+    if ( processQualities_ )
+    {
+        bufQual.resize( cycleNum_, vector<uchar>( BUFFERSIZE ) );
+        outputFilesQual.resize( cycleNum_ );
+    }
+
+    //TO DO
+    lengthRead = cycleNum_;
+    //The distribution of characters is useful
+    //for alpha[256] -->Corresponding between the alphabet, the piles and tableOcc
+    //and to know sizeAlpha
+    //We supposed that the symbols in the input file are the following
+    freq[int( terminatorChar )] = 1;
+    freq[int( 'A' )] = 1;
+    freq[int( 'C' )] = 1;
+    freq[int( 'G' )] = 1;
+    freq[int( 'N' )] = 1;
+    freq[int( 'T' )] = 1;
+    //GIOVANNA: ADDED THE SYMBOL Z IN THE ALPHABET, SO sizeAlpha = alphabetSize
+#ifdef USE_EXTRA_CHARACTER_Z
+    freq[int( 'Z' )] = 1;
+#endif
+
+    // create output files
+    for ( SequenceLength i = 0; i < cycleNum_; i++ )
+    {
+        Filename fn( output, i, "" );
+        outputFiles_[i] = fopen( fn, "w" );
+        if ( outputFiles_[i] == NULL )
+        {
+            cerr << "Error: couldn't open output file " << fn << endl;
+            if ( i > 0 )
+            {
+                cerr << "  You may have reached the maximum number of opened files (see `ulimit -n`) or the maximum number of files allowed in one directory, as we create one file per cycle (and a second one if qualities are present)" << endl;
+                exit ( -1 );
+            }
+        }
+        if ( generatedFilesAreTemporary )
+            TemporaryFilesManager::get().addFilename( fn );
+        if ( processQualities_ )
+        {
+            Filename fnQual( output + "qual.", i, "" );
+            outputFilesQual[i] = fopen( fnQual, "w" );
+            if ( outputFilesQual[i] == NULL )
+            {
+                cerr << "Error: couldn't open output file " << fnQual << endl;
+                if ( i > 0 )
+                {
+                    cerr << "  You may have reached the maximum number of opened files (see `ulimit -n`) or the maximum number of files allowed in one directory, as we create one file per cycle (and a second one if qualities are present)" << endl;
+                    exit ( -1 );
+                }
+            }
+            if ( generatedFilesAreTemporary )
+                TemporaryFilesManager::get().addFilename( fnQual );
+        }
+    }
+
+    //calculating how many times must read input file
+    double timesReadInput = (double)nTotalSeq/(double)BUFFERSIZE;
+    if(timesReadInput - (unsigned)timesReadInput > 0) timesReadInput = (unsigned)timesReadInput + 1;
+    //printf("\n Sequences are %ld and Times to read found is %f\n",nTotalSeq, (double)timesReadInput);
+    int counterTimes = 0;
+    nSeq = 0;
+    int base = 0;
+    int bound = BUFFERSIZE - 1;
+    lengthTexts = 0;
+    unsigned int num_write=0;
+    unsigned int charsBuffered = 0;
+    int maxPosition = 0;
+    int insertedSequences = 0;
+
+    // looping through the input file, add the characters to the buffer, print buffer when it's full
+    while( (counterTimes < timesReadInput) && (insertedSequences < nTotalSeq) ) {
+
+        num_write = 0;
+        nSeq=0;
+        gzFile fp;
+        kseq_t *seq;
+        int len = 0;
+        fp = gzopen(input.c_str(), "r");
+        seq = kseq_init(fp);
+        maxPosition = 0;
+
+        //TODO uso buffer o no? Se ne scrivo una alla volta?
+        while ((len = kseq_read(seq)) >= 0 && (insertedSequences < nTotalSeq)) {
+
+            int position = keepOrder[nSeq];
+            //printf("\n File to open is %s Position found is %d\n", input.c_str(), position);
+            if (charsBuffered == BUFFERSIZE) {
+                // write buffers to the files, clear buffers
+#pragma omp parallel for num_threads(4)
+                for (int i = 0; i < cycleNum_; i++) {
+                    size_t num_write_bases = fwrite(buf_[i].data(), sizeof(char), charsBuffered, outputFiles_[i]);
+                    checkIfEqual(num_write_bases,
+                                 charsBuffered); // we should always read/write the same number of characters
+                    if (processQualities_) {
+                        size_t num_write_qual = fwrite(bufQual[i].data(), sizeof(char), charsBuffered,
+                                                       outputFilesQual[i]);
+                        checkIfEqual(num_write_bases, num_write_qual);
+                    }
+                }
+                //lengthTexts += (num_write * cycleNum_);
+                charsBuffered = 0;
+                maxPosition = 0;
+                base += BUFFERSIZE;
+                bound += BUFFERSIZE;
+
+                /* debug buffer print
+                printf("\n--------------------------\n");
+                for(int i = 0; i < cycleNum_; i++) {
+                  for (int j = 0; j < BUFFERSIZE; j++)
+                      printf("%c ", buf_[i][j]);
+                  printf("\n");
+                }
+                printf("\n--------------------------\n");
+
+
+                //reset buffer
+                for(int i = 0; i < cycleNum_; i++)
+                    for(int j = 0; j < BUFFERSIZE; j++)
+                        buf_[i][j] = DUMMY_CHAR;
+            }
+
+            //check if sequence has to be ignored for now
+            if ((position >= base) && (position <= bound)) {
+                int bufferPosition = position % BUFFERSIZE;
+                if(bufferPosition > maxPosition)
+                    maxPosition = bufferPosition;
+
+#if (ALIGN == 0)
+                //Align right side to compute preprocessing RLO
+                int index = cycleNum_-1;
+                for ( int i = len-1; i >= 0; --i ){
+                    buf_[index][bufferPosition] = seq->seq.s[i];
+
+                    if (processQualities_ ){
+                        bufQual[index][bufferPosition] = seq->qual.s[i];
+                    }
+                    index--;
+                }
+                if(index >= 0)
+                    buf_[index][bufferPosition] = TERMINATE_CHAR;
+#else
+                //else align left side
+                SequenceLength i;
+                for ( i = 0; i < len; ++i ) {
+                    buf_[i][bufferPosition] = seq->seq.s[i];
+
+                    if (processQualities_) {
+                        bufQual[i][bufferPosition] = seq->qual.s[i];
+                    }
+                }
+                 if(i <= cycleNum_-1)
+                    buf_[i][bufferPosition] = TERMINATE_CHAR;
+#endif
+
+                // increase the counter of chars buffered only if the sequence was inserted
+                charsBuffered++;
+                // increase the number of inserted sequences
+                insertedSequences++;
+                lengthTexts+=len;
+            }
+            nSeq++;
+        }
+        counterTimes++;
+    }
+
+    // write the rest
+    for (SequenceLength i = 0; i < cycleNum_; i++) {
+        num_write = fwrite(buf_[i].data(), sizeof(uchar), maxPosition+1, outputFiles_[i]);
+        //lengthTexts += num_write;
+        if (processQualities_) {
+            size_t num_write_qual = fwrite(bufQual[i].data(), sizeof(uchar), maxPosition+1, outputFilesQual[i]);
+            checkIfEqual(num_write, num_write_qual);
+        }
+    }
+    checkIfEqual(num_write, maxPosition+1);
+
+    // closing all the output file streams
+    for ( SequenceLength i = 0; i < cycleNum_; i++ )
+    {
+        fclose( outputFiles_[i] );
+        if ( processQualities_ )
+        {
+            fclose( outputFilesQual[i] );
+        }
+    }
+
+    std::cout << "Number of sequences reading/writing: " << nSeq << "\n";
+    std::cout << "Number of characters reading/writing: " << lengthTexts << "\n";
+
+    return true;
+}
+*/
+
+//Find RLo group
+/*int findGroup(int realPosition, vector<group*> &RLOgroups){
+//TODO use iterator and improve, if position > bound -> then no group
+    int groupID=-1;
+    int iter=0;
+
+    for(group *g : RLOgroups){
+
+        if (iter > g->bound) //se ho superato il bound del gruppo posso uscire, i gruppi sono ordinati per costruzione
+            break;
+
+        if ( (realPosition >= g->base) && (realPosition <= g->bound) ) {
+            groupID = iter;
+            break;
+        }
+        iter++;
+    }
+    return groupID;
+}*/
+

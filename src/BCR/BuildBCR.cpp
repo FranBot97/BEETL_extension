@@ -38,20 +38,21 @@ using namespace BeetlBwtParameters;
 
 
 bool SAPstopped = false;
+bool diffLen = false;
 vector<SequenceNumber> sapCount;
 const int sizeAlphaM1 = 4;
 vector<char> whichPileSAP;
 SequenceNumber nText_2;
 SequenceNumber nextText;
+SequenceNumber nText_increasing = 0;
+LetterNumber $posN = 1;
 int charWritten = 0;
-
-#define ALIGN_LEFT 0 //aggiunto io
-#define LEFT_ALIGN 0
 
 #define SIZEBUFFER 1024 // TBD get rid of this
 unsigned int debugCycle = 0;
 unsigned int lastDefragCycle = 0;
 Timer timer;
+
 
 void dumpRamFiles()
 {
@@ -104,7 +105,7 @@ void BCRexternalBWT::convertFileFromIntermediateToFinalFormat( const char *filen
 
 void BCRexternalBWT::ReadFilesForCycle( const char *prefix, const SequenceLength cycle1, const SequenceLength readLength, SequenceNumber nText, uchar *newSymb, const bool processQualities, uchar *newQual )
 {
-    if(ACCEPT_DIFFERENT_LEN == 1)
+    if( diffLen && (ALIGN == 0))
         nText = nText_2;
 
     SequenceNumber count( nText );
@@ -141,6 +142,23 @@ void BCRexternalBWT::ReadFilesForCycle( const char *prefix, const SequenceLength
         checkIfEqual( num, count ); // we should always read the same number of characters
 #endif
         fclose( InFileInputText );
+
+     /*   if(ALIGN == 1) { //check for $
+            sortElement newVectTripleItem;
+
+            (int i = 0; i < nText; i++){
+                if(newSymb[i] == TERMINATE_CHAR){
+                    newVectTripleItem.posN = i + 1;
+                    newVectTripleItem.pileN = 0;
+                    newVectTripleItem.seqN = i;
+
+                    vectTriple[]
+
+                #pragma omp critical
+                    nText_increasing++;
+                }
+            }
+        }*/
 
         if ( revComp == 1 )
         {
@@ -542,13 +560,41 @@ int BCRexternalBWT::buildBCR( const string &file1, const string &fileOut, const 
         else
             f = fopen( file1.c_str(), "rb" );
         SeqReaderFile *pReader( SeqReaderFile::getReader( f ) );
-       transp.init( pReader, file1, readQualities);
+        /** Francesco Botrugno **/
+        diffLen = transp.init( pReader, file1, readQualities);
+        if(diffLen){
+            Logger::out() << "Detected different length among sequences" <<endl;
+        }else{
+            Logger::out() << "Sequences have all the same size" <<endl;
+        }
+       //check if sorting by length is asked
+        if( ( *bwtParams_ )[PARAMETER_ORDERING] == 2 ){
+            if(diffLen == false){
+                Logger::out() << "Asked for length sorting of sequences but all sequences are the same length. Proceding without reordering." <<endl;
+                transp.convert(file1, cycFilesPrefix );
+            }else {
+                Logger::out() << "Computing length sorting... ";
+                TmpFilename lenPrefix2("len.");
+                string lenPrefix = lenPrefix2.str();
+                string newFast = TEMP_DIR;
+                newFast.append("/");
+                newFast.append(transp.sortInputFileByLen(file1, lenPrefix ));
+                Logger::out() << "COMPLETED" << endl;
+                transp.convert(newFast, cycFilesPrefix );
+            }
+        }else{
+            transp.convert(file1, cycFilesPrefix);
+        }
 
-       //can't compute two different ordering at the same time, RLO overrides ordering by len
-       //TODO set parametri veri da terminale
-       transp.convert(file1, cycFilesPrefix, false);
+
+      if( ( *bwtParams_ )[PARAMETER_ORDERING] == 1 ) {
+          Logger::out() << "Computing RLO... ";
+          transp.computeRLO(file1, cycFilesPrefix);
+          Logger::out() << "COMPLETED" <<endl;
+
+      }
        //TODO set true to delete file, false instead
-        printf("\n-------------------- DONE --------------------------\n");
+      //  printf("\n-------------------- DONE --------------------------\n");
         delete pReader;
         if ( f != stdin )
             fclose( f );
@@ -557,6 +603,7 @@ int BCRexternalBWT::buildBCR( const string &file1, const string &fileOut, const 
     nText = transp.nSeq;
     lengthRead = transp.lengthRead;
     lengthTot = transp.lengthTexts;
+
     bool processQualities = transp.hasProcessedQualities();
 
     SequenceLength currentIteration = 0; // iteration counter of symbols insertion
@@ -664,6 +711,7 @@ int BCRexternalBWT::buildBCR( const string &file1, const string &fileOut, const 
     Logger::out() << "Starting iteration " << currentIteration << ", usage: " << timer << endl;
 
     ReadFilesForCycle( cycFilesPrefix.c_str(), currentCycleFileNum, lengthRead, nText, newSymb, processQualities, newQual );
+
     InitialiseTmpFiles();
 
 
@@ -724,8 +772,10 @@ int BCRexternalBWT::buildBCR( const string &file1, const string &fileOut, const 
         }
         InsertFirstsymbols( newSymb3, newQual );
     }
-    else
-        InsertFirstsymbols( newSymb, newQual );
+    else {
+       if (ALIGN == 0) InsertFirstsymbols(newSymb, newQual);
+       if (ALIGN == 1) InsertFirstSymbolsLeft(newSymb, newQual);
+    }
 
     // Update iteration counters
     ++currentIteration;
@@ -818,6 +868,7 @@ int BCRexternalBWT::buildBCR( const string &file1, const string &fileOut, const 
         {
             #pragma omp section
             {
+                //Cos'è questa parte ?
                 if ( ( int )currentIteration == nextIterationReset )
                 {
                     Logger::out() << "Resetting counters" << endl;
@@ -1009,6 +1060,63 @@ int BCRexternalBWT::buildBCR( const string &file1, const string &fileOut, const 
     return permuteQualities ? 2 : 1;
 } // ~buildBCR
 
+
+void BCRexternalBWT::InsertFirstSymbolsLeft(uchar const *newSymb, uchar const *newSymbQual){
+
+    const bool permuteQualities = ( bwtParams_->getValue( PARAMETER_PROCESS_QUALITIES ) == PROCESS_QUALITIES_PERMUTE );
+    uchar *newSymb_2 = new uchar[nText];
+    uchar *newSymbQual_2 = new uchar[nText];
+    int i = 0;
+
+    for ( SequenceNumber j = 0 ; j < nText; j++ )
+    {
+        if(newSymb[j] != DUMMY_CHAR) {
+
+            vectTriple[nText_increasing] = sortElement(0, j + 1, j);
+            nText_increasing++;
+            newSymb_2[i] = newSymb[j];
+
+            if(permuteQualities)
+                newSymbQual_2[i] = newSymbQual[j];
+            i++;
+        }
+    }
+    printf("DEBUG");
+    for ( SequenceNumber j = 0 ; j < nText; j++ )
+    {
+        if(newSymb[j] != DUMMY_CHAR)
+            tableOcc_[0].count_[whichPile[( int )newSymb[j]]]++;     //counting the number of occurrences in BWT of the $-pile
+    }
+
+    //Store newSymb into $-pile BWT
+    ( *pWriterBwt0_ )( ( const char * )newSymb_2, nText_increasing);
+    pWriterBwt0_->flush();
+
+
+
+    if ( permuteQualities )
+    {
+        assert ( newSymbQual );
+        TmpFilename filenameQualOut( "0.qual" );
+        FILE *OutFileBWTQual = fopen( filenameQualOut, "ab" );
+        if ( OutFileBWTQual == NULL )
+        {
+            cerr << "BWT file $: Error opening " << filenameQualOut << endl;
+            exit ( EXIT_FAILURE );
+        }
+        LetterNumber numQual = fwrite ( newSymbQual_2, sizeof( uchar ), nText_increasing, OutFileBWTQual );
+        checkIfEqual( numQual, nText_increasing );
+        fclose( OutFileBWTQual );
+    }
+
+    //Manca SAP e BUILD_SA
+
+}
+
+/*void BCRexternalBWT::FindInsertDollarsLeft(uchar const *newSymb, uchar const *newSymbQual){
+
+}*/
+
 void BCRexternalBWT::InsertFirstsymbols( uchar const *newSymb, uchar const *newSymbQual, const int subSequenceNum )
 {
 
@@ -1142,12 +1250,21 @@ void BCRexternalBWT::InsertNsymbols( uchar const *newSymb, SequenceLength iterat
     pileStarts[0] = 0;
     SequenceNumber index = 0;
     //cerr << "\n ------------ Size di vectTriple\n" << vectTriple.size();
+#if ALIGN == 0
     for ( int pile = 1; pile < alphabetSize + 1; ++pile )
     {
         while ( index < nText && vectTriple[index].pileN < pile )
             ++index;
         pileStarts[pile] = index;
     }
+#else
+    for ( int pile = 1; pile < alphabetSize + 1; ++pile )
+    {
+        while ( index < nText_increasing && vectTriple[index].pileN < pile )
+            ++index;
+        pileStarts[pile] = index;
+    }
+#endif
     /*
       for (unsigned int j = 0; j < alphabetSize-1; ++j)
       {
@@ -1515,7 +1632,7 @@ void BCRexternalBWT::InsertNsymbols_parallelPile( uchar const *newSymb, Sequence
         while ( ( k < endIndex ) && ( vectTriple[k].pileN == currentPile ) )
         {
             //For any character (of differents sequences) in the same pile
-            if ( verboseEncode == 1 )
+            if (verboseEncode == 1)
             {
                 cerr << "j-1: Q[" << k << "]=" << ( int )vectTriple[k].pileN << " P[" << k << "]=" << ( LetterNumber )vectTriple[k].posN << " N[" << k << "]=" << ( SequenceNumber )vectTriple[k].seqN << "\t";
                 //cerr << "--k= " << k << " pileN[k]= " << pileN[k] << " posN[k]= " << posN[k] <<  " seqN[k]= " << seqN[k] << endl;
@@ -1523,10 +1640,10 @@ void BCRexternalBWT::InsertNsymbols_parallelPile( uchar const *newSymb, Sequence
             foundSymbol = '\0';
 
             //
-            if(vectTriple[k].posN < cont) {
+       /*     if(vectTriple[k].posN < cont) {
                 cerr << endl << "===== STAMPA: vectrTiple[" << k << "], posN: " << vectTriple[k].posN << " cont: "
                      << cont << endl;
-            }
+            }*/
 
             //cont is the number of symbols already read!
             LetterNumber toRead = vectTriple[k].posN - cont;
@@ -1545,6 +1662,7 @@ void BCRexternalBWT::InsertNsymbols_parallelPile( uchar const *newSymb, Sequence
                         cerr << "  cont=" << cont << endl;
                         cerr << "  k=" << k << endl;
                         cerr << "  vectTriple[k].posN=" << vectTriple[k].posN << endl;
+                        cerr << " vectrTriple[k].seqN= "<<vectTriple[k].seqN << endl;
                         cerr << "  newSymb= " << newSymb[0] << newSymb[1] << newSymb[2] << "..." << endl;
                         cerr << "  iterationNum=" << iterationNum << endl;
                         if ( newQual )
@@ -1556,8 +1674,9 @@ void BCRexternalBWT::InsertNsymbols_parallelPile( uchar const *newSymb, Sequence
                         assert( false );
                     }
                 }
+               // printf("\n --- FOUND %c ----\n Pila %d, sequence %d", (char*)foundSymbol, currentPile, k );
                 assert( ( *pReader )( ( char * )&foundSymbol, 1 ) == 1 );
-              //  printf("\n --- FOUND %c ----\n", foundSymbol);
+
 
                 if ( whichPile[( int )foundSymbol] < alphabetSize ) {}
                 else
@@ -1567,7 +1686,10 @@ void BCRexternalBWT::InsertNsymbols_parallelPile( uchar const *newSymb, Sequence
                 }
 
                 counters.count_[whichPile[( int )foundSymbol]]++;
+
                 cont += toRead;
+
+
             }
 
             Logger_if( LOG_FOR_DEBUGGING )
@@ -1576,32 +1698,17 @@ void BCRexternalBWT::InsertNsymbols_parallelPile( uchar const *newSymb, Sequence
             }
 
             //cerr << "toRead " << toRead << "Found Symbol is " << foundSymbol << "\n";
-#if (LEFT_ALIGN == 1)
-            if(foundSymbol != DUMMY_CHAR){
-                //I have to update the value in vectTriple[k].posN, it must contain the position of the new symbol
-                //#ifdef XXX
-                //vectTriple[k].posN = counters.count_[whichPile[(int)foundSymbol]];
+#if (ALIGN == 1)
 
-                /*MIO*/
-                /*      if(foundSymbol == '#'){
-                       printf("ok\n");
-                       k++;
-                       continue;
-                       }*/
-
-                //FINE MIO
-                //  printf("PRIMA DEL FAULT %c\n", foundSymbol);
-                newVectTripleItem.posN = counters.count_[whichPile[( int )foundSymbol]]; //SEGMENTATION FAULT QUI
-                //#endif
-                //cerr << "--New posN[k]=" << (int)posN[k] <<endl;
+                newVectTripleItem.posN = counters.count_[whichPile[( int )foundSymbol]];
                 if ( verboseEncode == 1 )
                     cerr << "\nInit New P[" << k << "]= " << vectTriple[k].posN << endl; //TODO: update this to newVectTripleItem
 
                 for ( AlphabetSymbol g = 0 ; g < currentPile; g++ )  //I have to count in each pile g= 0... (currentPile-1)-pile
                 {
-                    //                vectTriple[k].posN = vectTriple[k].posN + tableOcc_[g].count_[whichPile[(int)foundSymbol]];
+
                     newVectTripleItem.posN += tableOcc_[g].count_[whichPile[( int )foundSymbol]];
-                    //cerr << "--New posN[k]=" << (int)posN[k] << " tableOcc[g][whichPile[(int)symbol]] " << tableOcc[g][whichPile[(int)symbol]] <<endl;
+
                     if ( verboseEncode == 1 )
                     {
                         cerr << "g= " << ( int )g << " symbol= " << ( int )foundSymbol << " whichPile[symbol]= "
@@ -1613,26 +1720,17 @@ void BCRexternalBWT::InsertNsymbols_parallelPile( uchar const *newSymb, Sequence
                 }
                 //I have to insert the new symbol in the symbol-pile
                 assert( whichPile[( int )foundSymbol] < alphabetSize );
-/*            if(whichPile[foundSymbol] == 'Z'){
-                printf("\nFOUND Z\n");
-                k++;
-                continue;
-            }*/
-                //            vectTriple[k].pileN=whichPile[(int)foundSymbol];
                 newVectTripleItem.pileN = whichPile[( int )foundSymbol];
-                //cerr << "New posN[k]=" << (int)posN[k] << " New pileN[k]=" << (int)pileN[k] << endl;
                 if ( verboseEncode == 1 )
                     cerr << "j  : Q[q]=" << ( int )vectTriple[k].pileN << " P[q]=" << ( LetterNumber )vectTriple[k].posN <<  " N[q]=" << ( SequenceNumber )vectTriple[k].seqN << endl;
 
                 newVectTripleItem.seqN = vectTriple[k].seqN;
                 newVectTripleItem.setLcpCurN( vectTriple[k].getLcpCurN() );
                 newVectTripleItem.setLcpSucN( vectTriple[k].getLcpSucN() );
-                //            vectTriple[k] = newVectTripleItem;
 
                 newVectTriplePerNewPile[ newVectTripleItem.pileN ].push_back( newVectTripleItem );
 
-            }else{
-            }
+
 
 #else
             if(foundSymbol != TERMINATE_CHAR){
@@ -1672,9 +1770,9 @@ void BCRexternalBWT::InsertNsymbols_parallelPile( uchar const *newSymb, Sequence
                 newVectTripleItem.setLcpSucN( vectTriple[k].getLcpSucN() );
                 newVectTriplePerNewPile[ newVectTripleItem.pileN ].push_back( newVectTripleItem );
 
-            }else{
-#pragma omp critical
-                nText--;
+            }else {
+#pragma omp atomic
+                    nText--;
             }
 #endif
             k++;
@@ -1731,7 +1829,7 @@ void BCRexternalBWT::storeBWT_parallelPile( uchar const *newSymb, uchar const *n
         TmpFilename filenameIn( "", currentPile, "" );
         TmpFilename filenameOut( "new_", currentPile, "" );
 
-        assert( currentPile > 0 ); // I removed the special case for pile 0
+       if(ALIGN == 0) assert( currentPile > 0 ); // I removed the special case for pile 0
         unique_ptr<BwtReaderBase> pReader( instantiateBwtReaderForIntermediateCycle( filenameIn, true ) );
         unique_ptr<BwtWriterBase> pWriter;
         if ( debugCycle < lengthRead )
@@ -1773,6 +1871,102 @@ void BCRexternalBWT::storeBWT_parallelPile( uchar const *newSymb, uchar const *n
         //For each new symbol in the same pile
         SequenceNumber k = j;
         LetterNumber cont = 0;
+#if ALIGN == 1
+        while ( ( k < nText_increasing ) && ( vectTriple[k].pileN == currentPile ) )
+        {
+            if ( verboseEncode == 1 )
+                cerr << "k= " << k << " Q[k]= " << ( int )vectTriple[k].pileN << " P[k]= " << vectTriple[k].posN << " cont = " << cont << endl;
+            //cerr << "k= " << k << " pileN[k]= " << pileN[k] << " posN[k]= " << posN[k] << endl;
+            //So I have to read the k-BWT and I have to count the number of the symbols up to the position posN.
+            //As PosN starts to the position 1 and I have to insert the new symbol in position posN[k]
+            // I have to read posN[k]-1 symbols
+            //cont is the number of symbols already read!
+            toRead = ( vectTriple[k].posN - 1 ) - cont;
+            if ( toRead )
+            {
+                Logger_if( LOG_FOR_DEBUGGING ) Logger::out() << "Start: to Read " << toRead << "\n";
+
+                ( *pReader ).readAndSend( ( *pWriter ), toRead );
+                if ( permuteQualities )
+                {
+                    ( *pQualReader ).readAndSend( ( *pQualWriter ), toRead );
+                }
+
+                cont += toRead;
+            }
+
+
+            //Now I have to insert the new symbol associated with the suffix of the sequence k
+            //And I have to update the number of occurrences of each symbol
+            //   if (toRead==0) {
+
+            const char charToWrite = newSymb[vectTriple[k].seqN];
+            if(0) {
+                cerr << endl << "========>" << (char *) newSymb << endl;
+                cerr << "charToWrite position " << vectTriple[k].seqN << "New Symb is" << newSymb[vectTriple[k].seqN] <<
+                "and its pile is "<<vectTriple[k].pileN;
+            }
+
+            if ( generateCycleBwt || generateCycleQualities )
+            {
+                char predictedChar = pWriter->getLastChar();
+                /*
+                                static int correctPredictions = 0;
+                                static int incorrectPredictions = 0;
+                                if ( charToWrite == predictedChar )
+                                {
+                                    ++correctPredictions;
+                                }
+                                else
+                                {
+                                    ++incorrectPredictions;
+                                }
+                                clog << "correctPrediction=" << (charToWrite==predictedChar) << " prediction=" << predictedChar << " base=" << charToWrite << endl;
+                */
+                bool isCorrectlyPredicted;
+                const char encodedChar = getPredictionBasedEncoding( charToWrite, predictedChar, isCorrectlyPredicted );
+                if ( generateCycleBwt )
+                    ( *pWriterPredictionBasedEncoding )( isCycleBwtPBE ? ( char * )&encodedChar : ( char * )&charToWrite, 1 );
+
+                // Prediction-based encoded Qualities
+                if ( generateCycleQualities && newQual )
+                {
+                    const char qual = newQual[vectTriple[k].seqN];
+                    bool removeQuality;
+                    if ( qual <= 33 + 2 )
+                    {
+                        // Don't remove QScores 0-2
+                        removeQuality = false;
+                    }
+                    else
+                    {
+                        removeQuality = isCorrectlyPredicted;
+                    }
+
+                    const char qualToWrite = removeQuality ? 255 : qual;
+                    ( *pQualWriterPredictionBasedEncoding )( ( char * )&qualToWrite, 1 );
+                    if ( qual ) // qual==0 for '$' signs
+                        predictionStatistics.add( removeQuality, qual );
+                }
+            }
+            if(charToWrite != DUMMY_CHAR) { //prevent errors
+                (*pWriter)((char *) &charToWrite, 1);
+                charWritten++;
+           }
+          //  cerr<<endl<<"Char Written: "<<charWritten<<endl;
+            if ( permuteQualities && newQual )
+            {
+                ( *pQualWriter )( ( char * )&newQual[vectTriple[k].seqN], 1 );
+            }
+
+            tableOcc_[currentPile].count_[whichPile[( int )newSymb[vectTriple[k].seqN]]]++;     //update the number of occurrences in BWT of the pileN[k]
+            //cerr << "new number write " << numchar << "\n";
+            cont++;    //number of read symbols
+            //toRead--;
+            //      }
+            k++;   //  I changed the number of the sequence. New iteration.
+        }
+#else
         while ( ( k < nText ) && ( vectTriple[k].pileN == currentPile ) )
         {
             if ( verboseEncode == 1 )
@@ -1867,7 +2061,7 @@ void BCRexternalBWT::storeBWT_parallelPile( uchar const *newSymb, uchar const *n
             //      }
             k++;   //  I changed the number of the sequence. New iteration.
         }
-
+#endif
         //it means that posN[k]<>currentPile, so I have to change BWT-file
         //But before, I have to copy the remainder symbols from the old BWT to new BWT
         ( *pReader ).readAndSend( ( *pWriter ) );
@@ -1896,11 +2090,19 @@ void BCRexternalBWT::storeBWT( uchar const *newSymb, uchar const *newQual )
     vector<SequenceNumber> pileStarts( alphabetSize + 1 );
     pileStarts[0] = 0;
     SequenceNumber index = 0;
-    for ( int pile = 1; pile < alphabetSize + 1; ++pile )
-    {
-        while ( index < nText && vectTriple[index].pileN < pile )
-            ++index;
-        pileStarts[pile] = index;
+    if(ALIGN == 0) {
+        for (int pile = 1; pile < alphabetSize + 1; ++pile) {
+            while (index < nText && vectTriple[index].pileN < pile)
+                ++index;
+            pileStarts[pile] = index;
+        }
+    }
+    if(ALIGN == 1){
+        for (int pile = 1; pile < alphabetSize + 1; ++pile) {
+            while (index < nText_increasing && vectTriple[index].pileN < pile)
+                ++index;
+            pileStarts[pile] = index;
+        }
     }
 
 

@@ -31,7 +31,7 @@ typedef unsigned char uchar;
 #define BUFFERSIZE 1024// 2^20
 #define ACCEPT_DIFFERENT_LEN 1 //if 0 all sequences must be of the same length
 #define PREPROCESS_RLO 1 //if 1 reverse lexicographical order of sequences and recomputes cycfile
-#define ORDER_BY_LEN 0 //if 1 orders sequences by len before creating cyc files
+#define ORDER_BY_LEN 1 //if 1 orders sequences by len before creating cyc files
 #define ALIGN 0 //alignment of sequences: 0 right - 1 left
 #define TERMINATE_CHAR '$'
 #define DUMMY_CHAR '#'
@@ -50,13 +50,14 @@ class TransposeFasta
 {
 public:
     TransposeFasta();
-    void init( SeqReaderFile *pReader, const string &input, const bool processQualities = true );
+    bool init( SeqReaderFile *pReader, const string &input, const bool processQualities = true );
     ~TransposeFasta();
 
     bool convert( const string &input, const string &output, bool generatedFilesAreTemporary = true );   //Input from Fasta file (converts Fasta File into cyc Files)
     bool convertByLen(const string &input, const string &output, bool generatedFilesAreTemporary = true ); //Used if ORDER_BY_LEN is set to 1
+    string sortInputFileByLen(const string &input, const string &output, bool generatedFilesAreTemporary = true);
     bool computeRLO(const string &input, const string &output, const string &RLOsupport = "");
-
+    void sortBylen( const string &input, const string &output);
     bool inputCycFile( const string &cycPrefix );                                    //Input from cyc files
     bool convertFromCycFileToFastaOrFastq( const string &fileInputPrefix, const string &fileOutput, bool generatedFilesAreTemporary = true, SequenceExtractor *sequenceExtractor = NULL );      //Convert cyc files into Fasta or Fastq File
     bool hasProcessedQualities() const
@@ -71,6 +72,7 @@ public:
 
     SequenceNumber nSeq;   //number total of texts in filename1
     LetterNumber freq[256];  //contains the distribution of the symbols. It is useful only for testing. It depends on the #characters
+    bool differentLenDetected_ = false;
 
 private:
     SeqReaderFile *pReader_;
@@ -81,7 +83,6 @@ private:
 
     //    uchar buf_[CYCLENUM][BUFFERSIZE];
     bool processQualities_;
-    bool differentLenDetected_;
     string fileSupportRLO_ = "";
 };
 

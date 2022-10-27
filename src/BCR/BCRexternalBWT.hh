@@ -69,6 +69,7 @@ private:
     void InsertNsymbols_parallelPile( uchar const *newSymb, SequenceLength posSymb, uchar const *newQual, unsigned int parallelPile, SequenceNumber startIndex, SequenceNumber endIndex, vector< FragmentedVector< sortElement > > &newVectTriplePerNewPile );
     void InitialiseTmpFiles();
     void InsertFirstsymbols( uchar const *, uchar const *qual = NULL, const int subSequenceNum = 0 );
+    void InsertFirstSymbolsLeft(uchar const *newSymb, uchar const *newSymbQual);
     int initializeUnbuildBCR( char const *, char const *, LetterNumber [] );
     int computeNewPositionForBackSearch ( char const *, char const *, uchar );
     int computeNewPositionForBackSearchByVector ( char const *, char const *, uchar );

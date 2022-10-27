@@ -760,7 +760,6 @@ LetterNumber BCRexternalBWT::rankManySymbolsByVector( FILE &InFileBWT, LetterNum
     return count;
 }
 
-
 int BCRexternalBWT::computeNewPositionForBackSearch( char const *file1, char const *fileOutBwt, uchar symbol )
 {
     //Last = C[c] + rank (c, Last)    --> (vectTriple[1].pileN, vectTriple[1].posN)
