@@ -29,11 +29,12 @@
 //TODO spostare tutto in TransposeFasta.hh oppure parameters
 using namespace std;
 KSEQ_INIT(gzFile, gzread);
-long myTotalLen;
-long maxSeqLen;
-vector <int> keepOrder;
-long int nTotalSeq;
+unsigned myTotalLen;
+unsigned maxSeqLen;
 unsigned minSeqLen;
+vector <int> keepOrder;
+unsigned nTotalSeq;
+
 
 // struct used to establish permutation of sequences by length
 struct seqInfo{
@@ -75,7 +76,7 @@ TransposeFasta::TransposeFasta()
     for ( int i( 0 ); i < 256; i++ ) freq[i] = 0;
 }
 
-int TransposeFasta::findInfoSeq(const string &input, const string &output, vector<int> &keepOrder) {
+unsigned TransposeFasta::findInfoSeq(const string &input) {
 
     for (dataTypedimAlpha z = 0 ; z < SIZE_ALPHA-1; z++)
         freq[z]=0;
@@ -87,8 +88,8 @@ int TransposeFasta::findInfoSeq(const string &input, const string &output, vecto
     int nSeq = 0; //number of sequences found
     long int lenTot = 0; //total characters read
     int sizeAlpha = 0; //different alphabet symbols found
-    int maxLen = 0; //max sequence length
     minSeqLen = UINT_MAX;
+    maxSeqLen = 0;
 
     //calculate file name
     std::string cutNameInput = (input.substr(input.find_last_of("/\\") + 1));
@@ -109,18 +110,21 @@ int TransposeFasta::findInfoSeq(const string &input, const string &output, vecto
     long previousLen = -1;
     while ((l = kseq_read(seq)) >= 0) {
         //detective different len between sequences
-        if(previousLen >= 0){
+        if( !differentLenDetected_ && (previousLen >= 0) ){
             if(l != previousLen)
                 differentLenDetected_ = true;
         }
         previousLen = l;
         nSeq++;
+
         for (long int z = 0; z < l; z++)
             freq[(unsigned int) (seq->seq.s[z])] = 1;
         long int actualLen = l;
         lenTot += actualLen;
-        if (actualLen > maxLen)
-            maxLen = actualLen;
+        //find max
+        if (actualLen > maxSeqLen)
+            maxSeqLen = actualLen;
+        //find min
         if (actualLen < minSeqLen)
             minSeqLen = actualLen;
         seqInfo addSeq;
@@ -128,6 +132,7 @@ int TransposeFasta::findInfoSeq(const string &input, const string &output, vecto
         addSeq.len = actualLen;
         infoVector.push_back(addSeq);
     }
+
 /*#if (PREPROCESS_RLO == 1)
     //printf("\nRLO\n");
     //opening file to print info for RLO
@@ -143,13 +148,12 @@ int TransposeFasta::findInfoSeq(const string &input, const string &output, vecto
     previousLen = -1;
     int sameLen = 0; int actualLen = -1;
 #endif*/
-    if(ORDER_BY_LEN == 1) {
-        keepOrder.resize(nSeq);
-        sort(infoVector.begin(), infoVector.end(), compareSequence);
 
-        for(int i = 0; i < nSeq; i++) {
-            keepOrder[infoVector[i].nSeq] = i;
-    }
+    if( ordering == 2 ) {
+        sort(infoVector.begin(), infoVector.end(), compareSequence);
+        assert( minSeqLen == infoVector[nSeq - 1].len);
+        assert( maxSeqLen == infoVector[0].len);
+
 /*#if (PREPROCESS_RLO == 1)   //ad info about sequences
         actualLen = infoVector[i].len;
         if(previousLen == actualLen)
@@ -178,7 +182,6 @@ int TransposeFasta::findInfoSeq(const string &input, const string &output, vecto
         sizeAlpha++;
     }
 
-
     //Creating info file //TODO metti nella cartella random
     std::stringstream infoFileName;
     //string cutNameInput = input.substr(0, strlen(input.c_str())-4);
@@ -191,13 +194,13 @@ int TransposeFasta::findInfoSeq(const string &input, const string &output, vecto
     }
     //Writing into info file
     std::stringstream infoData;
-    infoData << "lengthRead=" << maxLen << "\n" << "lenTot=" << lenTot << "\n" << "nSeq=" << nSeq << "\n" << "sizeAlpha=" << sizeAlpha;
+    infoData << "MinLengthRead=" << minSeqLen << "\n" << "MaxlengthRead=" << maxSeqLen << "\n" << "lenTot=" << lenTot << "\n" << "nSeq=" << nSeq << "\n" << "sizeAlpha=" << sizeAlpha;
     string data = infoData.str();
     fwrite(data.c_str(), sizeof(char), data.length(), outputInfo);
     fclose(outputInfo);
 
     nTotalSeq = nSeq;
-if( ORDER_BY_LEN == 1) {
+if( ordering == 2) {
     //Print permutation by len
     //Creating permutation file
     std::stringstream permFileName;
@@ -207,17 +210,17 @@ if( ORDER_BY_LEN == 1) {
         printf("Error while opening file\n");
         exit(EXIT_FAILURE);
     }
-    for (long int i = 0; i < nTotalSeq; i++) {
+    for (long int i = 0; i < nTotalSeq; i++)
         fprintf(outputPerm, "%d\n", infoVector[i].nSeq);
-        fflush(outputPerm);
-    }
+
+    fflush(outputPerm);
     fclose(outputPerm);
 }
 
     myTotalLen = lenTot;
-    maxSeqLen = maxLen;
-
-    return maxLen;
+    kseq_destroy(seq);
+    gzclose(fp);
+    return maxSeqLen;
 }
 
 bool TransposeFasta::init( SeqReaderFile *pReader, const string &input, const bool processQualities)
@@ -226,7 +229,7 @@ bool TransposeFasta::init( SeqReaderFile *pReader, const string &input, const bo
     //printf("\nFile name %s", input.c_str());
     pReader_ = pReader;
 #if (ACCEPT_DIFFERENT_LEN == 1)
-    cycleNum_ = findInfoSeq(input,output_array_file,keepOrder); //TODO remove keepOrder and use file instead
+    cycleNum_ = findInfoSeq(input); //TODO remove keepOrder and use file instead
     outputFiles_.resize( cycleNum_ );
     buf_.resize( cycleNum_, vector<uchar>( BUFFERSIZE ) );
     if(differentLenDetected_) {
@@ -302,7 +305,7 @@ string TransposeFasta::sortInputFileByLen(const string &input, const string &out
         }
 
       //  printf("%s\n", strToWrite.c_str());
-      //check if file exists, otherwise create
+      //check if file exists, otherwise create and set existence
       if(!fileExists[index]) {
           Filename fn(output, index, "");
           lenOutput[index] = fopen(fn, "w");
@@ -322,6 +325,7 @@ string TransposeFasta::sortInputFileByLen(const string &input, const string &out
 
         FILE *whereToWrite = lenOutput[index];
         size_t written_bytes = fwrite(strToWrite.c_str(), sizeof(char), strToWrite.size(), whereToWrite);
+        assert(written_bytes == strToWrite.size());
         isFirstTime[index] = false;
         strToWrite.clear();
     }
@@ -361,7 +365,9 @@ string TransposeFasta::sortInputFileByLen(const string &input, const string &out
             remove(rm);
         }
     }
-
+    
+    kseq_destroy(seq);
+    gzclose(fp);
     return cutNameInput.c_str();
 }
 
@@ -545,7 +551,8 @@ bool TransposeFasta::convert( const string &input, const string &output, bool ge
 
     lengthTexts = myTotalLen;
     lengthRead = maxSeqLen;
-
+    kseq_destroy(seq);
+    gzclose(fp);
 
     std::cout << "Number of sequences reading/writing: " << nSeq << "\n";
     std::cout << "Number of characters reading/writing: " << lengthTexts << "\n";

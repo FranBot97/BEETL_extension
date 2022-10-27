@@ -30,15 +30,12 @@ typedef unsigned char uchar;
 //TODO spostare tutto nei parametri giusti
 #define BUFFERSIZE 1024// 2^20
 #define ACCEPT_DIFFERENT_LEN 1 //if 0 all sequences must be of the same length
-#define PREPROCESS_RLO 1 //if 1 reverse lexicographical order of sequences and recomputes cycfile
-#define ORDER_BY_LEN 1 //if 1 orders sequences by len before creating cyc files
 #define ALIGN 0 //alignment of sequences: 0 right - 1 left
 #define TERMINATE_CHAR '$'
 #define DUMMY_CHAR '#'
 #define SIZE_ALPHA 256
 #define dataTypedimAlpha uchar
 #define dataTypelenSeq uchar
-#define output_array_file "position_array"
 #define TEMP_DIR "BEETL-Temp"
 //#define QS 0
 //#define CYCLENUM 100
@@ -65,10 +62,11 @@ public:
         return processQualities_;
     }
 
-    int findInfoSeq( const string &input, const string &output, vector<int> &keepOrder);
+    unsigned findInfoSeq( const string &input);
 
     SequenceLength lengthRead;    //Length of each text
     LetterNumber lengthTexts;   //Total length of all texts without $-symbols
+    unsigned ordering = 0; //0 None, 1 RLO, 2 by length
 
     SequenceNumber nSeq;   //number total of texts in filename1
     LetterNumber freq[256];  //contains the distribution of the symbols. It is useful only for testing. It depends on the #characters

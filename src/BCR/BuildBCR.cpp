@@ -561,6 +561,7 @@ int BCRexternalBWT::buildBCR( const string &file1, const string &fileOut, const 
             f = fopen( file1.c_str(), "rb" );
         SeqReaderFile *pReader( SeqReaderFile::getReader( f ) );
         /** Francesco Botrugno **/
+        transp.ordering = ( *bwtParams_ )[PARAMETER_ORDERING];
         diffLen = transp.init( pReader, file1, readQualities);
         if(diffLen){
             Logger::out() << "Detected different length among sequences" <<endl;
